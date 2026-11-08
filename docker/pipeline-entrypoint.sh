@@ -44,6 +44,34 @@ if [ -f "$CRED_FILE" ]; then
     . "$CRED_FILE"
     set +a
     log "loaded $(grep -c '^WP_APP_PASSWORD_' "$CRED_FILE" 2>/dev/null || echo 0) application password(s)"
+
+    # Also bake them into the rendered config. `docker compose exec pipeline
+    # python run.py ...` starts a fresh process that does *not* inherit what
+    # this script sourced, so without this step every manual command would fail
+    # with "site 'diy' has no WordPress application password configured".
+    python - "$RUNTIME" <<'PY'
+import os
+import sys
+
+import yaml
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    cfg = yaml.safe_load(fh) or {}
+
+patched = 0
+for site in cfg.get("sites") or []:
+    sid = str(site.get("id", ""))
+    pw = os.environ.get(f"WP_APP_PASSWORD_{sid.upper()}")
+    if sid and pw:
+        site.setdefault("wp", {})["app_password"] = pw
+        patched += 1
+
+with open(path, "w", encoding="utf-8") as fh:
+    yaml.safe_dump(cfg, fh, allow_unicode=True, sort_keys=False)
+
+print(f"[pipeline] wrote {patched} application password(s) into {path}")
+PY
 else
     log "WARN: ${CRED_FILE} not found -- publishing will fail until the web tier has provisioned the sites"
 fi

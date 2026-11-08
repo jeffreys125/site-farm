@@ -26,6 +26,9 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD:-wppass-change-me}
     volumes:
       - db_data:/var/lib/mysql
+      # Grants the app user CREATE on wp_% so the web tier can build one
+      # database per site. Runs once, on an empty data volume only.
+      - ./docker/db-init.sh:/docker-entrypoint-initdb.d/10-grants.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 10s

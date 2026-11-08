@@ -23,18 +23,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # wp-cli -- used once at first boot to install each site non-interactively.
 #
-# raw.githubusercontent.com is frequently unreachable from mainland China, and
-# flaky even when it is. Try three sources with retries, and do *not* fail the
-# build if all of them are down -- entrypoint.sh makes one more attempt at boot
-# and the image is still useful for debugging without wp-cli.
+# Source order matters: jsDelivr mirrors GitHub and is fast (and reachable)
+# nearly everywhere, while raw.githubusercontent.com is frequently blocked or
+# throttled to a few kB/s. Measured here: 7 MB in 3 s from jsDelivr versus
+# 1.9 MB in 60 s from raw.github.
+#
+# If every source fails the build still succeeds -- entrypoint.sh retries at
+# boot with the same list.
 RUN for url in \
+        "https://cdn.jsdelivr.net/gh/wp-cli/builds@gh-pages/phar/wp-cli.phar" \
         "https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar" \
         "https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar" \
-        "https://raw.gitmirror.com/wp-cli/builds/gh-pages/phar/wp-cli.phar" \
     ; do \
         echo "--- trying $url"; \
-        if curl -fsSL --http1.1 --retry 4 --retry-delay 3 --retry-all-errors \
-                --connect-timeout 20 --max-time 180 -o /usr/local/bin/wp "$url"; then \
+        if curl -fsSL --http1.1 --connect-timeout 15 --max-time 300 \
+                --speed-limit 4096 --speed-time 30 --retry 2 --retry-delay 2 --retry-all-errors \
+                -o /usr/local/bin/wp "$url"; then \
             chmod +x /usr/local/bin/wp; \
             if wp --allow-root --version; then break; fi; \
         fi; \
@@ -47,8 +51,9 @@ RUN for url in \
 # WordPress core is fetched at build time so first boot does not depend on
 # wordpress.org being reachable. entrypoint.sh re-downloads if this step failed.
 RUN mkdir -p /opt/wp-core \
-    && (curl -fsSL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
-            --connect-timeout 20 --max-time 300 https://wordpress.org/latest.tar.gz \
+    && (curl -fsSL --http1.1 --connect-timeout 15 --max-time 300 \
+            --speed-limit 4096 --speed-time 30 --retry 3 --retry-delay 3 --retry-all-errors \
+            https://wordpress.org/latest.tar.gz \
         | tar -xz -C /opt/wp-core --strip-components=1) \
     || echo "WARN: could not pre-fetch WordPress core; will retry at first boot"
 

@@ -1,0 +1,22 @@
+# Shell scripts, Dockerfiles and Apache configs are consumed *inside Linux
+# containers. A Windows checkout with core.autocrlf=true would otherwise turn
+# their line endings into CRLF and the container fails with
+#   /usr/local/bin/entrypoint.sh: no such file or directory
+# (the file is there -- bash just cannot parse the shebang line).
+* text=auto eol=lf
+
+*.sh    text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf
+*.conf  text eol=lf
+*.tpl   text eol=lf
+*.ini   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.sql   text eol=lf
+*.php   text eol=lf
+*.py    text eol=lf
+
+# Windows batch files must stay CRLF.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf

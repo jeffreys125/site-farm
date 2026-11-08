@@ -34,6 +34,34 @@ sed "s/@DOMAIN@/${DOMAIN}/g" \
     > /etc/apache2/sites-available/000-wildcard.conf
 a2ensite 000-wildcard >/dev/null 2>&1 || true
 
+# Global config: ServerName (silences AH00558, keeps self-referential redirects
+# on the public hostname) plus the per-directory rules every site needs.
+#
+# The rewrite rules live here rather than in each site's .htaccess on purpose:
+# wp-cli runs without a web server context, so `wp rewrite flush --hard` refuses
+# to write .htaccess ("Regenerating a .htaccess file requires special
+# configuration") and every pretty permalink -- including /wp-json/ -- 404s
+# until someone opens wp-admin and clicks Save. Doing it at the vhost level also
+# survives a plugin or an update wiping the file.
+cat > /etc/apache2/conf-available/sitefarm.conf <<CONF
+ServerName ${DOMAIN}
+
+<Directory /var/www/sites>
+    Options FollowSymLinks
+    AllowOverride All
+    Require all granted
+
+    RewriteEngine On
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+    RewriteBase /
+    RewriteRule ^index\\.php\$ - [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.php [L]
+</Directory>
+CONF
+a2enconf sitefarm >/dev/null 2>&1 || true
+
 mkdir -p "$WP_ROOT"
 chown -R www-data:www-data "$WP_ROOT"
 
@@ -43,10 +71,15 @@ if [ -z "$WP_ADMIN_PASSWORD" ]; then
 fi
 
 # ------------------------------------------------------------------ db ------
+# Readiness is probed with PHP's mysqli, not the mysql CLI. Two reasons:
+#   - the CLI shipped by default-mysql-client is MariaDB's, which refuses
+#     MySQL 8's self-signed TLS certificate ("TLS/SSL error" on every ping);
+#   - mysqli is exactly the stack WordPress itself uses, so a green probe here
+#     means WordPress will connect too.
 log "waiting for MySQL at ${DB_HOST} ..."
 db_ready=0
 for _ in $(seq 1 90); do
-    if mysqladmin ping -h"${DB_HOST}" -u"${DB_USER}" -p"${DB_PASSWORD}" --silent >/dev/null 2>&1; then
+    if php -r 'exit(@mysqli_connect(getenv("DB_HOST"), getenv("DB_USER"), getenv("DB_PASSWORD")) ? 0 : 1);' >/dev/null 2>&1; then
         db_ready=1
         break
     fi
@@ -67,12 +100,13 @@ ensure_wp_cli() {
     fi
     log "wp-cli missing, fetching ..."
     for url in \
+        "https://cdn.jsdelivr.net/gh/wp-cli/builds@gh-pages/phar/wp-cli.phar" \
         "https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar" \
         "https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar" \
-        "https://raw.gitmirror.com/wp-cli/builds/gh-pages/phar/wp-cli.phar" \
     ; do
-        if curl -fsSL --http1.1 --retry 4 --retry-delay 3 --retry-all-errors \
-                --connect-timeout 20 --max-time 180 -o /usr/local/bin/wp "$url" 2>/dev/null; then
+        if curl -fsSL --http1.1 --connect-timeout 15 --max-time 300 \
+                --speed-limit 4096 --speed-time 30 --retry 2 --retry-delay 2 --retry-all-errors \
+                -o /usr/local/bin/wp "$url" 2>/dev/null; then
             chmod +x /usr/local/bin/wp
             if wp --allow-root --version >/dev/null 2>&1; then
                 log "wp-cli ready"
@@ -98,6 +132,29 @@ if [ ! -f "${CORE}/wp-load.php" ]; then
         | tar -xz -C "$CORE" --strip-components=1
 fi
 
+# --------------------------------------------------------------- helpers ----
+# Creates a database with PHP's mysqli. Three ways to do this all fail:
+#   - the mysql CLI: MariaDB client rejects MySQL 8's self-signed TLS cert
+#   - wp db query:   it connects *to* the database it is about to create
+#   - mysql -e "...": same TLS problem
+# so plain mysqli, which is also what WordPress uses.
+create_database() {
+    php -r '
+        mysqli_report(MYSQLI_REPORT_OFF);
+        $c = @mysqli_connect(getenv("DB_HOST"), getenv("DB_USER"), getenv("DB_PASSWORD"));
+        if (!$c) {
+            fwrite(STDERR, "cannot reach MySQL\n");
+            exit(1);
+        }
+        $db = str_replace("`", "", $argv[1]);
+        $sql = "CREATE DATABASE IF NOT EXISTS `{$db}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
+        if (!@mysqli_query($c, $sql)) {
+            fwrite(STDERR, mysqli_error($c) . "\n");
+            exit(2);
+        }
+    ' "$1"
+}
+
 # --------------------------------------------------------------- sites ------
 install_site() {
     local id="$1" title="$2"
@@ -121,9 +178,10 @@ install_site() {
     mkdir -p "$dir"
     cp -a "${CORE}/." "$dir/"
 
-    mysql -h"${DB_HOST}" -u"${DB_USER}" -p"${DB_PASSWORD}" \
-        -e "CREATE DATABASE IF NOT EXISTS \`${dbname}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" \
-        2>/dev/null || true
+    if ! create_database "$dbname"; then
+        log "[${id}] FAILED: could not create database ${dbname}"
+        return 1
+    fi
 
     wp config create --allow-root --path="$dir" \
         --dbname="$dbname" --dbuser="${DB_USER}" --dbpass="${DB_PASSWORD}" --dbhost="${DB_HOST}" \
@@ -147,10 +205,28 @@ if (isset(\$_SERVER['HTTP_X_FORWARDED_HOST'])) {
 }
 PHP
 
-    wp core install --allow-root --path="$dir" \
+    # Application Passwords are refused by WordPress whenever is_ssl() is false,
+    # which turns every pipeline REST call into 401 rest_not_logged_in even with
+    # correct credentials. A must-use plugin re-enables them; wp-config cannot
+    # do it because add_filter() does not exist yet at that point.
+    mkdir -p "$dir/wp-content/mu-plugins"
+    cat > "$dir/wp-content/mu-plugins/sitefarm-app-passwords.php" <<'MU'
+<?php
+/**
+ * Plugin Name: Sitefarm - Application Passwords over plain HTTP
+ * Description: Allows REST authentication through WordPress Application
+ *              Passwords when TLS terminates outside the container.
+ */
+add_filter( 'wp_is_application_passwords_available', '__return_true' );
+MU
+
+    if ! wp core install --allow-root --path="$dir" \
         --url="$url" --title="$title" \
         --admin_user="${WP_ADMIN_USER}" --admin_password="${WP_ADMIN_PASSWORD}" \
-        --admin_email="${WP_ADMIN_EMAIL}" --skip-email --quiet
+        --admin_email="${WP_ADMIN_EMAIL}" --skip-email --quiet; then
+        log "[${id}] FAILED: wp core install returned an error"
+        return 1
+    fi
 
     # sensible defaults for a content site
     wp rewrite structure '/%postname%/' --allow-root --path="$dir" --quiet

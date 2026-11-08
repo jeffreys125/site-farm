@@ -1,8 +1,8 @@
 # =============================================================================
-# Rendered by entrypoint.sh at container start -- do not edit this template's
-# @DOMAIN@ placeholder unless you also change it there.
+#  Rendered by entrypoint.sh at container start -- do not edit this template's
+#  @DOMAIN@ placeholder unless you also change it there.
 #
-# Routing model:
+#  Routing model:
 #   example.com        -> /var/www/sites/hub          (brand site, optional)
 #   *.example.com      -> /var/www/sites/<subdomain>  (one WordPress per sub)
 # =============================================================================
@@ -12,12 +12,6 @@
     ServerName  @DOMAIN@
     ServerAlias www.@DOMAIN@
     DocumentRoot /var/www/sites/hub
-
-    <Directory /var/www/sites/hub>
-        Options FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
 
     # WordPress Application Passwords send Basic auth; Apache drops the header
     # unless it is explicitly re-exported here.
@@ -33,12 +27,6 @@
 <VirtualHost *:80>
     ServerAlias *.@DOMAIN@
     VirtualDocumentRoot /var/www/sites/%1
-
-    <Directory /var/www/sites>
-        Options FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
 
     SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
 
