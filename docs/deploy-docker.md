@@ -65,9 +65,9 @@ docker compose up -d
 docker compose logs -f web
 ```
 
-首次启动会依次做这些事，**大约 3–6 分钟**：
+首次启动会依次做这些事，**实测约 2 分钟**（干净的 volume、9 个站）：
 
-1. 初始化 MySQL（12 秒左右）
+1. 初始化 MySQL（10 秒左右）
 2. 下载 WordPress 核心（镜像构建时已预下载，通常跳过）
 3. 逐个创建数据库 `wp_hub` / `wp_diy` / `wp_pet` …
 4. 装 WordPress、设置固定链接、关评论、删示例文章
@@ -83,9 +83,36 @@ docker compose logs -f web
 
 > 如果 `WP_ADMIN_PASSWORD` 留空，系统会随机生成一个，**只在日志里显示这一次**。用 `docker compose logs web | grep "generated admin password"` 找回来。
 
+后台账号密码对所有站相同，站点之间靠子域区分。
+
 ---
 
-## 三、验证
+## 三、这套东西实际跑通过什么
+
+下面这些不是"应该可以"，是干净 volume 上真跑出来的结果：
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 9 个站自动装好 | `docker compose logs web \| grep "sites ready"` | `auto camp diy garden homeoffice hub kitchen pet woodworking` |
+| 应用密码自动生成 | `... grep credentials` | `9 site(s)` |
+| 子域路由 | `curl -I -H "Host: diy.example.com" localhost:8080/` | `200` |
+| 伪静态 + REST | `curl -o /dev/null -w "%{http_code}" -H "Host: diy.example.com" localhost:8080/wp-json/` | `200`（133 条路由） |
+| REST 鉴权 | `curl -u editor:<应用密码> .../wp/v2/users/me` | `200`，返回 `editor` |
+| 发布文章 | `docker compose exec pipeline python run.py publish --site diy` | `published=1`，WordPress 里出现草稿 |
+| sitemap | `python run.py submit --site diy` | `diy.xml` 写出，IndexNow 无 key 时自动跳过 |
+
+过程中踩到并已经修掉的四个坑（都写进代码注释了，改的时候别改回去）：
+
+1. **MariaDB 客户端连不上 MySQL 8** —— 镜像里 `default-mysql-client` 是 MariaDB 的，遇到 MySQL 8 自签名证书直接报 `TLS/SSL error`。健康检查因此永远不通过，改用 PHP 的 mysqli 探活（和 WordPress 同一套栈）。
+2. **`wp` 用户只有 `wp_hub` 的权限** —— MySQL 官方镜像只给 `MYSQL_DATABASE` 授权，建 `wp_diy` 会 access denied。`docker/db-init.sh` 在首次初始化时对 `wp_%` 通配授权。
+3. **wp-cli 写不了 `.htaccess`** —— 它跑在 CLI 上下文里，`got_url_rewrite()` 为假，`wp rewrite flush --hard` 只会警告 `Regenerating a .htaccess file requires special configuration`，结果所有固定链接 404。重写规则改到 vhost 配置里，不依赖站点目录可写。
+4. **Application Password 在 http 下被禁用** —— `is_ssl()` 为假时 WordPress 直接拒绝应用密码，REST 返回 401 `rest_not_logged_in`。用 mu-plugin 重新打开；等你前面挂了 TLS 代理，这个过滤器就是无害的空操作。
+
+另外 `docker compose exec pipeline ...` 是**新进程**，不继承 entrypoint 里 source 的环境变量，所以启动时会把应用密码写进渲染后的配置（`/app/runtime/sites.yaml`），手动执行命令才不会报"没有应用密码"。
+
+---
+
+## 四、验证
 
 没配 DNS 也能先验证，用 Host 头直接打：
 
@@ -113,7 +140,7 @@ C:\Windows\System32\drivers\etc\hosts
 
 ---
 
-## 四、DNS 配置
+## 五、DNS 配置
 
 上线前在域名商处加两条记录：
 
@@ -126,7 +153,7 @@ C:\Windows\System32\drivers\etc\hosts
 
 ---
 
-## 五、HTTPS（三选一）
+## 六、HTTPS（三选一）
 
 ### 方案 A：Caddy 反代（推荐，全自动证书）
 
@@ -185,7 +212,7 @@ Cloudflare 会终止 TLS，回源走 http，所以 `.env` 里 `SITE_SCHEME=https
 
 ---
 
-## 六、日常使用
+## 七、日常使用
 
 ```bash
 # 看状态
@@ -219,7 +246,7 @@ PUBLISH_STATUS=draft     # 前两个月保持 draft，人工过一遍
 
 ---
 
-## 七、备份
+## 八、备份
 
 ```bash
 # 数据库（八站全在一个 MySQL 里，一条命令搞定）
@@ -233,7 +260,7 @@ Windows 的 PowerShell 里把 `$(date +%F)` 换成 `%date:~0,4%%date:~5,2%%date:
 
 ---
 
-## 八、常见问题
+## 九、常见问题
 
 **容器起来了但站点 500**
 看 `docker compose logs web`。多半是 MySQL 还没就绪就被访问了，等 30 秒。如果持续报错，检查 `.env` 里 `DB_PASSWORD` 和 `MYSQL_ROOT_PASSWORD` 有没有混用。

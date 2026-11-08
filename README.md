@@ -27,7 +27,7 @@
 ```bash
 cp .env.docker.example .env     # 改 DOMAIN、数据库密码、DEEPSEEK_API_KEY
 docker compose up -d
-docker compose logs -f web      # 看八个站依次装好，约 3-6 分钟
+docker compose logs -f web      # 看八个站依次装好，实测约 2 分钟
 ```
 
 首次启动会自动做这些事，**不需要手动进任何后台**：
