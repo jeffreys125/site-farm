@@ -5,6 +5,30 @@
 
 ---
 
+## 零、Windows 前提
+
+你机器上已经有宝塔的 Apache，所以这里只补 Docker 本身要准备的东西：
+
+| 检查项 | 要求 |
+|---|---|
+| Docker | 装 **Docker Desktop**，安装时勾选 WSL2 backend |
+| WSL2 | PowerShell 里 `wsl -l -v` 要能看到 `docker-desktop`，状态 `Running` |
+| 虚拟化 | 任务管理器 → 性能 → CPU → 虚拟化：**已启用**（关了要进 BIOS 开 VT-x） |
+| 磁盘 | 预留 **15 GB**（三个镜像 + 数据卷） |
+| 内存 | Docker Desktop 设置里给 **4 GB 以上**，8 个 WordPress 一起跑不宽裕但不能低于 2 GB |
+
+验证：
+
+```powershell
+docker version           # Client 和 Server 都要有输出，Server 空说明 Docker Desktop 没启动
+docker compose version   # 要 v2.x，v1 的 docker-compose 命令写法不一样
+```
+
+> 第一次 `docker compose build` 会编译 PHP 扩展，**耗时 10–20 分钟**，取决于网络。之后重建只要几秒。
+> 如果构建卡在 `apt-get` 不动，是 Debian 源太慢——在 Dockerfile 顶部把 `deb.debian.org` 换成清华镜像 `mirrors.tuna.tsinghua.edu.cn` 再构建。
+
+---
+
 ## 一、先解决端口冲突
 
 你机器上已经有宝塔的 Apache 占着 **80** 和 **443**。Docker 默认映射到 **8080**，两边可以共存：

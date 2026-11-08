@@ -58,11 +58,44 @@ if [ "$db_ready" -ne 1 ]; then
 fi
 log "MySQL is up"
 
+# ------------------------------------------------------------- wp-cli ------
+# The image tries to bake wp-cli in at build time. If that failed (blocked
+# network, mirror trouble) this is the second and last attempt.
+ensure_wp_cli() {
+    if wp --allow-root --version >/dev/null 2>&1; then
+        return 0
+    fi
+    log "wp-cli missing, fetching ..."
+    for url in \
+        "https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar" \
+        "https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar" \
+        "https://raw.gitmirror.com/wp-cli/builds/gh-pages/phar/wp-cli.phar" \
+    ; do
+        if curl -fsSL --http1.1 --retry 4 --retry-delay 3 --retry-all-errors \
+                --connect-timeout 20 --max-time 180 -o /usr/local/bin/wp "$url" 2>/dev/null; then
+            chmod +x /usr/local/bin/wp
+            if wp --allow-root --version >/dev/null 2>&1; then
+                log "wp-cli ready"
+                return 0
+            fi
+        fi
+        log "  failed: ${url}"
+    done
+    log "FATAL: cannot install wp-cli -- no route to any mirror"
+    log "       fix the container's outbound network, or copy wp-cli.phar to"
+    log "       /usr/local/bin/wp manually and restart"
+    return 1
+}
+
+ensure_wp_cli || exit 1
+
 # ---------------------------------------------------------------- core ------
 if [ ! -f "${CORE}/wp-load.php" ]; then
     log "WordPress core missing, downloading ..."
     rm -rf "${CORE:?}"/* 2>/dev/null || true
-    curl -fsSL https://wordpress.org/latest.tar.gz | tar -xz -C "$CORE" --strip-components=1
+    curl -fsSL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
+        --connect-timeout 20 --max-time 300 https://wordpress.org/latest.tar.gz \
+        | tar -xz -C "$CORE" --strip-components=1
 fi
 
 # --------------------------------------------------------------- sites ------
