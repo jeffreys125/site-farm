@@ -1,0 +1,320 @@
+# ---------------------------------------------------------------------------
+# Site-farm configuration
+#
+# Copy this file to config/sites.yaml and edit it. Everything here is data:
+# the pipeline code never needs to change when you add a site.
+#
+# Secrets are read from environment variables first, so you can keep them out
+# of the file entirely:
+#   DEEPSEEK_API_KEY, INDEXNOW_KEY, WP_APP_PASSWORD_<SITEID_UPPERCASE>
+# ---------------------------------------------------------------------------
+
+project:
+  brand: "Northline Media"
+  contact_email: "editor@example.com"
+
+  deepseek:
+    api_key: ""                       # prefer the DEEPSEEK_API_KEY env var
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-chat"            # deepseek-chat (V3) is cheapest for bulk copy
+    temperature: 0.75
+    max_tokens: 8192
+    requests_per_minute: 40
+
+  paths:
+    data_dir: "data"
+    output_dir: "output"
+
+  indexnow_key: ""                    # 32-64 hex chars, generate one per project
+  bing_api_key: ""
+  google_sa_json: ""
+
+sites:
+  # =========================================================================
+  # 1. DIY / home repair - highest commercial intent, strong affiliate payouts
+  # =========================================================================
+  - id: diy
+    domain: "example.com"
+    base_url: "https://diy.example.com"
+    niche: "home repair, renovation and DIY projects"
+    audience: "US and UK homeowners aged 30-60 tackling weekend projects themselves"
+    tone: "practical, hands-on, mildly opinionated"
+    currency: "USD"
+    per_day: 3
+    min_words: 1400
+    max_words: 2000
+    affiliate_tag: "northline-20"
+    hub_url: "https://example.com"
+    siblings: [woodworking, garden, homeoffice]
+    categories: ["Guides", "Plumbing", "Electrical", "Painting", "Flooring", "Insulation"]
+    topic_seeds:
+      - "fixing common household problems"
+      - "renovation cost breakdowns"
+      - "weekend DIY projects"
+      - "tools a beginner actually needs"
+    disclosure: "Links marked with a tag may earn us a commission. It never changes what we recommend."
+    sources:
+      - url: "https://www.consumerfinance.gov/about-us/newsroom/feed/"
+        name: "CFPB newsroom"
+        kind: rss
+        license: public-domain
+      - url: "https://www.energy.gov/rss/press-releases"
+        name: "US DOE"
+        kind: rss
+        license: public-domain
+    wp:
+      user: "editor"
+      app_password: ""
+      status: "draft"
+      default_category: "Guides"
+
+  # =========================================================================
+  # 2. Woodworking - small but fanatical audience, high tool AOV
+  # =========================================================================
+  - id: woodworking
+    domain: "example.com"
+    base_url: "https://woodworking.example.com"
+    niche: "woodworking techniques, joinery and workshop setup"
+    audience: "hobbyist woodworkers with a garage shop and 2-5 years of experience"
+    tone: "craftsman-to-craftsman, precise about measurements"
+    currency: "USD"
+    per_day: 2
+    min_words: 1300
+    max_words: 1900
+    affiliate_tag: "northline-20"
+    hub_url: "https://example.com"
+    siblings: [diy, homeoffice]
+    categories: ["Techniques", "Joinery", "Tool Reviews", "Shop Setup", "Finishing"]
+    topic_seeds:
+      - "joinery methods compared"
+      - "workshop layout for small spaces"
+      - "sharpening and tuning hand tools"
+      - "wood species selection"
+    sources:
+      - url: "https://www.nist.gov/news-events/news/rss.xml"
+        name: "NIST"
+        kind: rss
+        license: public-domain
+    wp:
+      user: "editor"
+      app_password: ""
+      status: "draft"
+      default_category: "Techniques"
+
+  # =========================================================================
+  # 3. Pet care - enormous search volume, recurring consumable purchases
+  # =========================================================================
+  - id: pet
+    domain: "example.com"
+    base_url: "https://pet.example.com"
+    niche: "dog and cat care, behaviour and gear"
+    audience: "first-time and second-time pet owners in the US"
+    tone: "warm but precise, never alarmist, always defers to a vet for medical issues"
+    currency: "USD"
+    per_day: 3
+    min_words: 1200
+    max_words: 1800
+    affiliate_tag: "northline-20"
+    hub_url: "https://example.com"
+    siblings: [garden, homeoffice]
+    categories: ["Dog Care", "Cat Care", "Behaviour", "Gear", "Feeding"]
+    topic_seeds:
+      - "puppy training fundamentals"
+      - "cat litter and feeding setups"
+      - "pet gear durability comparisons"
+      - "senior pet mobility"
+    sources:
+      - url: "https://www.ars.usda.gov/rss/"
+        name: "USDA ARS"
+        kind: rss
+        license: public-domain
+      - url: "https://www.ftc.gov/feeds/press-release.xml"
+        name: "FTC"
+        kind: rss
+        license: public-domain
+    wp:
+      user: "editor"
+      app_password: ""
+      status: "draft"
+      default_category: "Dog Care"
+
+  # =========================================================================
+  # 4. Camping and hiking - seasonal spikes, strong gear commissions
+  # =========================================================================
+  - id: camp
+    domain: "example.com"
+    base_url: "https://camp.example.com"
+    niche: "camping, hiking and backcountry gear"
+    audience: "weekend car campers and beginner backpackers in North America"
+    tone: "trail-tested, specific about weights and temperatures"
+    currency: "USD"
+    per_day: 2
+    min_words: 1300
+    max_words: 1900
+    affiliate_tag: "northline-20"
+    hub_url: "https://example.com"
+    siblings: [kitchen, auto]
+    categories: ["Camping Gear", "Backpacking", "Recipes", "Safety", "Trip Planning"]
+    topic_seeds:
+      - "sleep system temperature ratings"
+      - "camp kitchen setups"
+      - "beginner backpacking loadouts"
+      - "camping in cold and wet weather"
+    sources:
+      - url: "https://www.energy.gov/rss/press-releases"
+        name: "US DOE"
+        kind: rss
+        license: public-domain
+      - url: "https://www.nist.gov/news-events/news/rss.xml"
+        name: "NIST"
+        kind: rss
+        license: public-domain
+    wp:
+      user: "editor"
+      app_password: ""
+      status: "draft"
+      default_category: "Camping Gear"
+
+  # =========================================================================
+  # 5. Kitchen gear and technique - evergreen, very high purchase frequency
+  # =========================================================================
+  - id: kitchen
+    domain: "example.com"
+    base_url: "https://kitchen.example.com"
+    niche: "kitchen equipment, cooking technique and food storage"
+    audience: "home cooks who cook 4+ times a week and are upgrading their kit"
+    tone: "test-kitchen voice: what we tried, what failed, what we kept"
+    currency: "USD"
+    per_day: 3
+    min_words: 1200
+    max_words: 1800
+    affiliate_tag: "northline-20"
+    hub_url: "https://example.com"
+    siblings: [camp, garden]
+    categories: ["Cookware", "Technique", "Small Appliances", "Food Storage", "Knives"]
+    topic_seeds:
+      - "cookware material comparisons"
+      - "knife sharpening and maintenance"
+      - "small appliance buying decisions"
+      - "food storage and shelf life"
+    sources:
+      - url: "https://www.ars.usda.gov/rss/"
+        name: "USDA ARS"
+        kind: rss
+        license: public-domain
+      - url: "https://www.energy.gov/rss/press-releases"
+        name: "US DOE"
+        kind: rss
+        license: public-domain
+    wp:
+      user: "editor"
+      app_password: ""
+      status: "draft"
+      default_category: "Cookware"
+
+  # =========================================================================
+  # 6. Car maintenance - high-value repairs, excellent RPM
+  # =========================================================================
+  - id: auto
+    domain: "example.com"
+    base_url: "https://auto.example.com"
+    niche: "car maintenance, diagnostics and detailing"
+    audience: "US drivers keeping a car past 100k miles, comfortable with basic tools"
+    tone: "mechanic explaining it plainly, safety-first"
+    currency: "USD"
+    per_day: 2
+    min_words: 1300
+    max_words: 1900
+    affiliate_tag: "northline-20"
+    hub_url: "https://example.com"
+    siblings: [diy, camp]
+    categories: ["Maintenance", "Diagnostics", "Detailing", "Tools", "Buying"]
+    topic_seeds:
+      - "preventive maintenance schedules"
+      - "diagnosing common noises and leaks"
+      - "detailing and paint protection"
+      - "repair cost comparisons"
+    sources:
+      - url: "https://www.nist.gov/news-events/news/rss.xml"
+        name: "NIST"
+        kind: rss
+        license: public-domain
+      - url: "https://www.ftc.gov/feeds/press-release.xml"
+        name: "FTC"
+        kind: rss
+        license: public-domain
+    wp:
+      user: "editor"
+      app_password: ""
+      status: "draft"
+      default_category: "Maintenance"
+
+  # =========================================================================
+  # 7. Gardening - spring/summer spikes, repeat purchase category
+  # =========================================================================
+  - id: garden
+    domain: "example.com"
+    base_url: "https://garden.example.com"
+    niche: "vegetable gardening, soil health and garden landscaping"
+    audience: "US homeowners with a backyard plot, USDA zones 4-9"
+    tone: "patient, seasonal, rooted in soil science"
+    currency: "USD"
+    per_day: 2
+    min_words: 1200
+    max_words: 1800
+    affiliate_tag: "northline-20"
+    hub_url: "https://example.com"
+    siblings: [diy, kitchen, pet]
+    categories: ["Vegetables", "Soil", "Landscaping", "Pest Control", "Tools"]
+    topic_seeds:
+      - "soil preparation and testing"
+      - "crop rotation and companion planting"
+      - "raised bed construction"
+      - "season extension techniques"
+    sources:
+      - url: "https://www.ars.usda.gov/rss/"
+        name: "USDA ARS"
+        kind: rss
+        license: public-domain
+    wp:
+      user: "editor"
+      app_password: ""
+      status: "draft"
+      default_category: "Vegetables"
+
+  # =========================================================================
+  # 8. Home office - SaaS affiliate commissions are recurring, very high LTV
+  # =========================================================================
+  - id: homeoffice
+    domain: "example.com"
+    base_url: "https://homeoffice.example.com"
+    niche: "home office setup, ergonomics and small-team productivity tools"
+    audience: "remote workers and 2-20 person teams setting up a real workspace"
+    tone: "pragmatic, anti-hype, numbers over adjectives"
+    currency: "USD"
+    per_day: 2
+    min_words: 1200
+    max_words: 1800
+    affiliate_tag: "northline-20"
+    hub_url: "https://example.com"
+    siblings: [woodworking, diy, pet]
+    categories: ["Desks", "Chairs", "Audio", "Software", "Ergonomics"]
+    topic_seeds:
+      - "desk and chair ergonomics"
+      - "microphone and camera setups"
+      - "small team software stacks"
+      - "workspace lighting"
+    sources:
+      - url: "https://www.nist.gov/news-events/news/rss.xml"
+        name: "NIST"
+        kind: rss
+        license: public-domain
+      - url: "https://www.consumerfinance.gov/about-us/newsroom/feed/"
+        name: "CFPB"
+        kind: rss
+        license: public-domain
+    wp:
+      user: "editor"
+      app_password: ""
+      status: "draft"
+      default_category: "Desks"

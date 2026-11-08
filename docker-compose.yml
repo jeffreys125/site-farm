@@ -1,0 +1,122 @@
+# =============================================================================
+#  Site-farm stack: MySQL + Apache/WordPress x8 + content pipeline
+#
+#    cp .env.docker.example .env
+#    docker compose up -d
+#    docker compose logs -f web        # watch the eight sites being installed
+#
+#  Ports: 8080 -> the web tier. Put Caddy / Nginx / BaoTa in front for TLS, or
+#  change HTTP_PORT to 80 if nothing else is using it.
+# =============================================================================
+
+name: site-farm
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=256M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass-change-me}
+      MYSQL_DATABASE: wp_hub
+      MYSQL_USER: ${DB_USER:-wp}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-wppass-change-me}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    networks:
+      - farm
+
+  web:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:-example.com}
+      SITES: ${SITES:-hub,diy,woodworking,pet,camp,kitchen,auto,garden,homeoffice}
+      SITE_SCHEME: ${SITE_SCHEME:-http}
+      BRAND: ${BRAND:-Northline}
+      WP_ADMIN_USER: ${WP_ADMIN_USER:-editor}
+      WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD:-}
+      WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL:-}
+      DB_HOST: db
+      DB_USER: ${DB_USER:-wp}
+      DB_PASSWORD: ${DB_PASSWORD:-wppass-change-me}
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - wp_sites:/var/www/sites
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ -o /dev/null || exit 1"]
+      interval: 30s
+      timeout: 8s
+      retries: 10
+      start_period: 240s
+    networks:
+      farm:
+        ipv4_address: 172.30.0.10
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/pipeline.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      DOMAIN: ${DOMAIN:-example.com}
+      SITE_SCHEME: ${SITE_SCHEME:-http}
+      WP_ADMIN_USER: ${WP_ADMIN_USER:-editor}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      INDEXNOW_KEY: ${INDEXNOW_KEY:-}
+      DAILY_ENABLED: ${DAILY_ENABLED:-false}
+      DAILY_GEN_COUNT: ${DAILY_GEN_COUNT:-3}
+      DAILY_INTERVAL: ${DAILY_INTERVAL:-86400}
+      PUBLISH_STATUS: ${PUBLISH_STATUS:-draft}
+    volumes:
+      - ./config/sites.yaml:/app/config/sites.yaml:ro
+      - wp_sites:/wpdata:ro
+      - pipeline_data:/app/data
+      - pipeline_out:/app/output
+    # The pipeline talks to each site over its real public URL, so the request
+    # carries the correct Host header and WordPress returns canonical links.
+    # These entries short-circuit DNS to the web container, which keeps the
+    # loop working on servers behind NAT or with no hairpin routing.
+    # --- keep in sync with DOMAIN and SITES above ---
+    extra_hosts:
+      - "${DOMAIN:-example.com}:172.30.0.10"
+      - "diy.${DOMAIN:-example.com}:172.30.0.10"
+      - "woodworking.${DOMAIN:-example.com}:172.30.0.10"
+      - "pet.${DOMAIN:-example.com}:172.30.0.10"
+      - "camp.${DOMAIN:-example.com}:172.30.0.10"
+      - "kitchen.${DOMAIN:-example.com}:172.30.0.10"
+      - "auto.${DOMAIN:-example.com}:172.30.0.10"
+      - "garden.${DOMAIN:-example.com}:172.30.0.10"
+      - "homeoffice.${DOMAIN:-example.com}:172.30.0.10"
+    networks:
+      - farm
+
+volumes:
+  db_data:
+  wp_sites:
+  pipeline_data:
+  pipeline_out:
+
+networks:
+  farm:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

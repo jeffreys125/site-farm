@@ -1,0 +1,21 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+# runtime state -- never bake these into an image
+data/
+output/
+*.db
+*.log
+
+# secrets
+.env
+.env.docker
+config/sites.yaml
+
+docs/
+scripts/

@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>英文垂直站群 · 架构、内容引擎与变现方案</title>
+<style>
+  :root{
+    --ink:#1c1b18; --paper:#fbfaf6; --card:#ffffff;
+    --muted:#6d6a61; --line:#e4dfd3; --line-soft:#efece3;
+    --accent:#0f6b5c; --accent-soft:#e8f2ef; --accent-line:#bcd8d1;
+    --warn:#a8541b; --warn-soft:#faf0e7;
+    --deny:#8d2f2f; --deny-soft:#faeeee;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --serif:"Iowan Old Style","Songti SC","Noto Serif SC",Georgia,serif;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:16px;line-height:1.75;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 32px 120px}
+
+  /* ---------- header ---------- */
+  header{padding:80px 0 56px;border-bottom:1px solid var(--line)}
+  .kicker{
+    font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin-bottom:20px;
+  }
+  h1{
+    font-family:var(--serif);font-size:46px;line-height:1.2;
+    margin:0 0 22px;letter-spacing:-.01em;font-weight:600;
+  }
+  .lede{font-size:19px;line-height:1.7;color:#3a3934;max-width:760px;margin:0 0 28px}
+  .meta{display:flex;gap:32px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+  .meta b{color:var(--ink);font-weight:600}
+
+  /* ---------- sections ---------- */
+  section{padding:64px 0;border-bottom:1px solid var(--line-soft)}
+  section:last-of-type{border-bottom:none}
+  h2{
+    font-family:var(--serif);font-size:30px;line-height:1.3;margin:0 0 8px;
+    font-weight:600;letter-spacing:-.005em;
+  }
+  .sub{color:var(--muted);font-size:15px;margin:0 0 36px;max-width:720px}
+  h3{font-size:18px;margin:36px 0 12px;font-weight:650;letter-spacing:-.005em}
+  p{margin:0 0 18px;max-width:820px}
+  strong{font-weight:650}
+
+  /* ---------- verdict cards ---------- */
+  .verdicts{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:32px 0 8px}
+  .vc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:24px 22px}
+  .vc .n{
+    font-family:var(--mono);font-size:12px;color:var(--accent);
+    font-weight:600;letter-spacing:.08em;margin-bottom:12px;
+  }
+  .vc h4{margin:0 0 10px;font-size:17px;font-weight:650;line-height:1.4}
+  .vc p{font-size:14.5px;color:var(--muted);margin:0;line-height:1.65}
+
+  /* ---------- callout ---------- */
+  .callout{
+    background:var(--accent-soft);border-left:3px solid var(--accent);
+    border-radius:0 8px 8px 0;padding:20px 24px;margin:28px 0;
+  }
+  .callout.warn{background:var(--warn-soft);border-left-color:var(--warn)}
+  .callout.deny{background:var(--deny-soft);border-left-color:var(--deny)}
+  .callout p:last-child{margin-bottom:0}
+  .callout .label{
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    font-weight:700;color:var(--accent);margin-bottom:8px;display:block;
+  }
+  .callout.warn .label{color:var(--warn)}
+  .callout.deny .label{color:var(--deny)}
+
+  /* ---------- diagram ---------- */
+  figure{margin:36px 0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px 24px 20px}
+  figcaption{
+    font-size:13px;color:var(--muted);margin-top:16px;padding-top:14px;
+    border-top:1px solid var(--line-soft);
+  }
+  figure svg{width:100%;height:auto;display:block}
+
+  /* ---------- tables ---------- */
+  table{width:100%;border-collapse:collapse;margin:24px 0;font-size:14.5px}
+  th{
+    text-align:left;font-weight:650;font-size:12px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);
+    border-bottom:2px solid var(--line);padding:10px 14px 10px 0;
+  }
+  td{padding:13px 14px 13px 0;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.num{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
+  .tag{
+    display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;
+    border-radius:4px;background:var(--accent-soft);color:var(--accent);
+    white-space:nowrap;
+  }
+  .tag.warn{background:var(--warn-soft);color:var(--warn)}
+  .tag.deny{background:var(--deny-soft);color:var(--deny)}
+  .tag.plain{background:#f2f0ea;color:var(--muted)}
+
+  /* ---------- pipeline ---------- */
+  .pipe{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:32px 0 12px}
+  .step{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:18px 16px;position:relative;
+  }
+  .step .idx{
+    font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);
+    letter-spacing:.1em;margin-bottom:10px;
+  }
+  .step h5{margin:0 0 8px;font-size:14.5px;font-weight:650;line-height:1.4}
+  .step p{font-size:12.8px;line-height:1.6;color:var(--muted);margin:0}
+  .step::after{
+    content:"";position:absolute;right:-7px;top:50%;width:6px;height:1px;
+    background:var(--line);display:block;
+  }
+  .step:last-child::after{display:none}
+
+  /* ---------- checklist ---------- */
+  .checks{list-style:none;padding:0;margin:20px 0;max-width:860px}
+  .checks li{
+    position:relative;padding:9px 0 9px 30px;border-bottom:1px solid var(--line-soft);
+    font-size:15px;
+  }
+  .checks li:last-child{border-bottom:none}
+  .checks li::before{
+    content:"";position:absolute;left:4px;top:17px;width:11px;height:11px;
+    border:1.5px solid var(--accent-line);border-radius:3px;
+  }
+  .checks li b{font-weight:650}
+  .checks code{
+    font-family:var(--mono);font-size:12.5px;background:#f2f0ea;
+    padding:1px 6px;border-radius:4px;color:#423f38;
+  }
+
+  /* ---------- timeline ---------- */
+  .tl{margin:32px 0 0;border-left:2px solid var(--line);padding-left:28px}
+  .tl-item{position:relative;padding-bottom:32px}
+  .tl-item:last-child{padding-bottom:0}
+  .tl-item::before{
+    content:"";position:absolute;left:-35px;top:7px;width:11px;height:11px;
+    border-radius:50%;background:var(--card);border:2.5px solid var(--accent);
+  }
+  .tl-item .when{
+    font-family:var(--mono);font-size:12px;color:var(--accent);
+    font-weight:600;letter-spacing:.05em;margin-bottom:6px;
+  }
+  .tl-item h4{margin:0 0 8px;font-size:17px;font-weight:650}
+  .tl-item p{font-size:14.5px;color:var(--muted);margin:0;line-height:1.65}
+
+  /* ---------- stat row ---------- */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:28px 0}
+  .stat{background:var(--card);padding:22px 20px}
+  .stat .v{font-family:var(--serif);font-size:30px;font-weight:600;line-height:1.1;margin-bottom:6px}
+  .stat .k{font-size:12.5px;color:var(--muted);line-height:1.5}
+
+  footer{padding:56px 0 0;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+
+  @media (max-width:860px){
+    .wrap{padding:0 20px 80px}
+    h1{font-size:32px} h2{font-size:24px}
+    .verdicts,.stats{grid-template-columns:1fr}
+    .pipe{grid-template-columns:1fr}
+    .step::after{display:none}
+    table{font-size:13px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">方案文档 · 2025</div>
+  <h1>英文垂直站群：<br>从采集搬运到可控内容工厂</h1>
+  <p class="lede">
+    你要的是 8 个能收录、有流量、能变现的英文站，用二级域名串起来，DeepSeek 做内容生产。
+    技术上这件事完全可行——但「采集完整内容再改写」这个做法本身，是整条链路上唯一会让你归零的环节。
+    这份文档给出替代路线：同样的自动化、同样的低成本，但内容来源和加工方式换成算法和广告主都认可的形态。
+  </p>
+  <div class="meta">
+    <span><b>技术栈</b> Windows · 宝塔 · Apache · WordPress</span>
+    <span><b>规模</b> 8 个二级域名站点</span>
+    <span><b>日产能</b> 16–24 篇</span>
+    <span><b>单篇成本</b> ¥0.03 左右</span>
+  </div>
+</header>
+
+<!-- ============================================================ 1 -->
+<section>
+  <h2>先说要改的那件事</h2>
+  <p class="sub">不是道德说教，是投入产出比。下面三条决定了你两年后是在收钱还是在重开。</p>
+
+  <div class="verdicts">
+    <div class="vc">
+      <div class="n">01 / 政策</div>
+      <h4>搬运 + 洗稿已经是明确的封禁项</h4>
+      <p>Google 的 <em>scaled content abuse</em> 政策把「批量生成对用户无增量价值的页面」定义为 spam，
+      2024 年 3 月核心更新后由系统自动判定，不再依赖人工。整站搬运是这条政策最典型的命中样本。</p>
+    </div>
+    <div class="vc">
+      <div class="n">02 / 变现</div>
+      <h4>AdSense 审核这一步就过不去</h4>
+      <p>采集站的特征（无作者、无原创、内容重复）在审核环节会被直接拒。即使侥幸过审，
+      后续的无效流量检测和版权投诉也会让账户先于收益被停掉。</p>
+    </div>
+    <div class="vc">
+      <div class="n">03 / 成本</div>
+      <h4>但 AI 原创的成本结构确实变了</h4>
+      <p>DeepSeek 生成一篇 1500 词结构化长文约 <b>$0.004</b>。人工写手同规格 $50–150。
+      这个 1000 倍的差距，才是站群第一次真正跑得通的原因。</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="label">结论</span>
+    <p>把内容来源从「别人的文章」换成「<strong>公有领域资料 + 开放数据集 + 模型自身知识</strong>」，
+    把加工方式从「同义词替换」换成「<strong>重组结构 + 补充可核对的具体数值 + 生成对比表格</strong>」。
+    流水线一行代码都不用改，只是换掉 prompt 和素材源。</p>
+  </div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section>
+  <h2>站群拓扑</h2>
+  <p class="sub">
+    二级域名共享主域权重，这是它相对独立新域名的最大优势。代价是所有子站在 Google 眼里同属一个实体，
+    所以隔离要做在「安装层」而不是「域名层」。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 960 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="站群拓扑图">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto">
+          <path d="M0,0.5 L7,4 L0,7.5 z" fill="#9dc4bb"/>
+        </marker>
+      </defs>
+
+      <!-- hub -->
+      <rect x="350" y="16" width="240" height="62" rx="9" fill="#0f6b5c"/>
+      <text x="470" y="42" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="14" font-weight="700">example.com</text>
+      <text x="470" y="62" text-anchor="middle" fill="#bcd8d1" font-size="11.5">品牌主域 · 目录页 · About / 政策页</text>
+
+      <!-- trunk: one bus, eight drops (row 2 drops pass between row 1 cards) -->
+      <g stroke="#bcd8d1" stroke-width="1.6" fill="none">
+        <path d="M470 78 L470 112"/>
+        <path d="M120 112 L820 112"/>
+        <path d="M120 112 L120 148" marker-end="url(#arrow)"/>
+        <path d="M320 112 L320 148" marker-end="url(#arrow)"/>
+        <path d="M520 112 L520 148" marker-end="url(#arrow)"/>
+        <path d="M720 112 L720 148" marker-end="url(#arrow)"/>
+        <path d="M220 112 L220 272" marker-end="url(#arrow)"/>
+        <path d="M420 112 L420 272" marker-end="url(#arrow)"/>
+        <path d="M620 112 L620 272" marker-end="url(#arrow)"/>
+        <path d="M820 112 L820 272" marker-end="url(#arrow)"/>
+      </g>
+
+      <!-- sites row 1 -->
+      <g font-family="monospace" font-size="12.5">
+        <rect x="35" y="154" width="170" height="78" rx="8" fill="#ffffff" stroke="#e4dfd3"/>
+        <text x="49" y="178" fill="#0f6b5c" font-weight="700">diy.</text>
+        <text x="49" y="198" fill="#6d6a61" font-size="10.5">家装维修 · RPM 最高</text>
+        <text x="49" y="216" fill="#a8541b" font-size="10" font-family="sans-serif">互链 3 站</text>
+
+        <rect x="235" y="154" width="170" height="78" rx="8" fill="#ffffff" stroke="#e4dfd3"/>
+        <text x="249" y="178" fill="#0f6b5c" font-weight="700">woodworking.</text>
+        <text x="249" y="198" fill="#6d6a61" font-size="10.5">木工 · 工具客单价高</text>
+        <text x="249" y="216" fill="#a8541b" font-size="10" font-family="sans-serif">互链 2 站</text>
+
+        <rect x="435" y="154" width="170" height="78" rx="8" fill="#ffffff" stroke="#e4dfd3"/>
+        <text x="449" y="178" fill="#0f6b5c" font-weight="700">pet.</text>
+        <text x="449" y="198" fill="#6d6a61" font-size="10.5">宠物 · 高频复购</text>
+        <text x="449" y="216" fill="#a8541b" font-size="10" font-family="sans-serif">互链 2 站</text>
+
+        <rect x="635" y="154" width="170" height="78" rx="8" fill="#ffffff" stroke="#e4dfd3"/>
+        <text x="649" y="178" fill="#0f6b5c" font-weight="700">camp.</text>
+        <text x="649" y="198" fill="#6d6a61" font-size="10.5">户外露营 · 季节高峰</text>
+        <text x="649" y="216" fill="#a8541b" font-size="10" font-family="sans-serif">互链 2 站</text>
+      </g>
+
+      <!-- sites row 2 -->
+      <g font-family="monospace" font-size="12.5">
+        <rect x="135" y="278" width="170" height="78" rx="8" fill="#ffffff" stroke="#e4dfd3"/>
+        <text x="149" y="302" fill="#0f6b5c" font-weight="700">kitchen.</text>
+        <text x="149" y="322" fill="#6d6a61" font-size="10.5">厨房 · 购买频次最高</text>
+        <text x="149" y="340" fill="#a8541b" font-size="10" font-family="sans-serif">互链 2 站</text>
+
+        <rect x="335" y="278" width="170" height="78" rx="8" fill="#ffffff" stroke="#e4dfd3"/>
+        <text x="349" y="302" fill="#0f6b5c" font-weight="700">auto.</text>
+        <text x="349" y="322" fill="#6d6a61" font-size="10.5">汽车养护 · 维修高价</text>
+        <text x="349" y="340" fill="#a8541b" font-size="10" font-family="sans-serif">互链 2 站</text>
+
+        <rect x="535" y="278" width="170" height="78" rx="8" fill="#ffffff" stroke="#e4dfd3"/>
+        <text x="549" y="302" fill="#0f6b5c" font-weight="700">garden.</text>
+        <text x="549" y="322" fill="#6d6a61" font-size="10.5">园艺 · 春夏季爆发</text>
+        <text x="549" y="340" fill="#a8541b" font-size="10" font-family="sans-serif">互链 3 站</text>
+
+        <rect x="735" y="278" width="170" height="78" rx="8" fill="#ffffff" stroke="#e4dfd3"/>
+        <text x="749" y="302" fill="#0f6b5c" font-weight="700">homeoffice.</text>
+        <text x="749" y="322" fill="#6d6a61" font-size="10.5">居家办公 · SaaS 分佣</text>
+        <text x="749" y="340" fill="#a8541b" font-size="10" font-family="sans-serif">互链 3 站</text>
+      </g>
+
+      <!-- legend -->
+      <g font-family="sans-serif" font-size="10.5" fill="#6d6a61">
+        <line x1="35" y1="404" x2="72" y2="404" stroke="#bcd8d1" stroke-width="1.6"/>
+        <text x="80" y="408">主域 → 子站（权重继承，8 站平级）</text>
+        <rect x="330" y="398" width="10" height="10" rx="2" fill="none" stroke="#e4dfd3"/>
+        <text x="348" y="408">橙色文字 = 该站配置的互链兄弟站数量</text>
+      </g>
+
+      <text x="480" y="442" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#a8541b">
+        关键：每个子站独立 WordPress + 独立数据库，一个站被处罚不会传染整张网络
+      </text>
+    </svg>
+    <figcaption>
+      拓扑说明：主域承担品牌与信任信号，不做内容；8 个子站各自独立建站、平级挂在主域下。
+      站间互链刻意保持稀疏且主题相关（每站 2–3 条）——全站互链是 PBN 最典型的指纹，Google 的链接系统已经能识别。
+    </figcaption>
+  </figure>
+
+  <h3>为什么用「独立安装」而不是 WordPress Multisite</h3>
+  <p>
+    Multisite 省事，但它把所有子站绑成一个实体：共享用户表、共享插件、共享一份「站点质量」评估。
+    一旦某个子站因为内容问题被人工处罚，整张网络的表现会一起下滑。独立安装意味着
+    <strong>风险隔离</strong>——最坏情况是一个站归零，其余七个照常跑。这是站群能活过两年的结构前提。
+  </p>
+
+  <div class="stats">
+    <div class="stat"><div class="v">8</div><div class="k">独立 WordPress 安装<br>各自独立数据库</div></div>
+    <div class="stat"><div class="v">1</div><div class="k">通配符 SSL 证书<br>DNS-01 验证</div></div>
+    <div class="stat"><div class="v">3</div><div class="k">每站互链上限<br>只链强相关站</div></div>
+    <div class="stat"><div class="v">0</div><div class="k">跨站重复内容<br>SimHash 强制查重</div></div>
+  </div>
+</section>
+
+<!-- ============================================================ 3 -->
+<section>
+  <h2>八个站的主题分配</h2>
+  <p class="sub">
+    选站标准只有三条：不以 YMYL 为主（医疗/法律/金融审核极严）、有实物商品可挂联盟、
+    素材可以合法获取。下面全部满足。
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:15%">子域名</th>
+        <th style="width:24%">定位</th>
+        <th style="width:16%">变现主力</th>
+        <th style="width:15%">英文 RPM 区间</th>
+        <th style="width:30%">为什么选它</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>diy.</b></td>
+        <td>家装维修、翻新</td>
+        <td>Amazon + 建材联盟</td>
+        <td class="num">$14–24</td>
+        <td>商业意图最强的品类之一，用户搜「怎么修」时已经在准备花钱</td>
+      </tr>
+      <tr>
+        <td><b>woodworking.</b></td>
+        <td>木工技艺、工坊</td>
+        <td>工具品牌联盟</td>
+        <td class="num">$12–20</td>
+        <td>受众小但极忠诚，台锯/雕刻机客单价 $300–2000</td>
+      </tr>
+      <tr>
+        <td><b>pet.</b></td>
+        <td>猫狗养护、行为</td>
+        <td>Amazon + 宠物品牌</td>
+        <td class="num">$8–16</td>
+        <td>搜索量巨大，粮/砂/玩具是月度复购，LTV 高</td>
+      </tr>
+      <tr>
+        <td><b>camp.</b></td>
+        <td>露营、徒步装备</td>
+        <td>REI / Backcountry</td>
+        <td class="num">$10–18</td>
+        <td>4–9 月流量翻三倍，装备决策周期长、比价需求强</td>
+      </tr>
+      <tr>
+        <td><b>kitchen.</b></td>
+        <td>厨具、烹饪技法</td>
+        <td>Amazon + 品牌直营</td>
+        <td class="num">$10–18</td>
+        <td>常年稳定，锅具/刀具测评的可信度门槛适中</td>
+      </tr>
+      <tr>
+        <td><b>auto.</b></td>
+        <td>汽车保养、诊断</td>
+        <td>汽配联盟 + 工具</td>
+        <td class="num">$12–22</td>
+        <td>「修一次省 $400」的心理账户，转化率高</td>
+      </tr>
+      <tr>
+        <td><b>garden.</b></td>
+        <td>蔬菜园艺、土壤</td>
+        <td>种子 + 园艺工具</td>
+        <td class="num">$6–13</td>
+        <td>3–7 月爆发，长尾词极多，竞争度低于家装</td>
+      </tr>
+      <tr>
+        <td><b>homeoffice.</b></td>
+        <td>居家办公、效率工具</td>
+        <td>SaaS 联盟（循环佣金）</td>
+        <td class="num">$10–25</td>
+        <td>软件联盟给的是<strong>每月循环分佣</strong>，一次转化持续收钱</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <span class="label">刻意排除的品类</span>
+    <p>
+      健康医疗、法律咨询、投资理财、保险——这些属于 Google 的 <b>YMYL</b>（影响人身与财务安全）范畴，
+      对作者资质和内容审核的要求高出一个量级，AI 批量生产几乎必然被压。等这张网络跑稳、有了真实作者身份，
+      再单独开一个站做，不要混在第一批里。
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section>
+  <h2>内容引擎</h2>
+  <p class="sub">
+    这是已经写好的流水线，五个环节，每一步都有明确的失败处理。跑批命令就是 <code>run.py gen --count 3</code>。
+  </p>
+
+  <div class="pipe">
+    <div class="step">
+      <div class="idx">STEP 01</div>
+      <h5>选题</h5>
+      <p>模型按站点定位产出 4–9 词长尾词，标注搜索意图和优先级，写入 SQLite 队列。</p>
+    </div>
+    <div class="step">
+      <div class="idx">STEP 02</div>
+      <h5>素材</h5>
+      <p>只轮询配置里列出的源，先查 robots.txt，再按 license 字段决定能用多少。公有领域优先。</p>
+    </div>
+    <div class="step">
+      <div class="idx">STEP 03</div>
+      <h5>写作</h5>
+      <p>System prompt 锁死：禁止连续 10 词重合、禁止编造数据、必须含比较表格和 4–6 条 FAQ。</p>
+    </div>
+    <div class="step">
+      <div class="idx">STEP 04</div>
+      <h5>质检</h5>
+      <p>标题归一化去重、slug 冲突检测、正文 SimHash 指纹比对（汉明距离 ≤3 判重）。</p>
+    </div>
+    <div class="step">
+      <div class="idx">STEP 05</div>
+      <h5>发布</h5>
+      <p>WordPress REST API 推草稿，自动建分类标签，末尾注入 JSON-LD 结构化数据。</p>
+    </div>
+  </div>
+
+  <h3>Prompt 里真正起作用的三条约束</h3>
+  <p>
+    绝大多数 AI 内容站失败，不是因为模型写得差，而是因为没人告诉它<strong>不要做什么</strong>。
+    这三条是实测下来对「像人写的」贡献最大的：
+  </p>
+  <ul class="checks">
+    <li><b>禁止宽泛表述。</b>「工具价格差异很大」不合格，「PEX 压接钳 $35–60，比铜管焊接省 2 小时」合格。要求模型每 200 词至少给一个具体数字。</li>
+    <li><b>禁止结构套路。</b>不允许「总而言之」「在当今快节奏的世界里」这类开头，禁止用反问句开篇。正文必须有一个「最容易犯的错」小节。</li>
+    <li><b>禁止虚构。</b>不引用不存在的研究、不编造价格、不伪造专家身份。无法确证的数字宁可写区间。</li>
+  </ul>
+
+  <div class="callout">
+    <span class="label">成本核算</span>
+    <p>
+      DeepSeek V3 输出 $1.10 / 百万 token，输入 $0.27 / 百万 token。
+      一篇 1500 词文章的往返约 4000 输入 + 3000 输出，成本 <b>$0.0044</b>，折合人民币约 <b>3 分钱</b>。
+      8 个站每天 24 篇，月成本约 <b>$3–5</b>；算上重试和加长版本，实际按 $15–30 / 月做预算足够宽裕。
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section>
+  <h2>收录加速</h2>
+  <p class="sub">
+    新站的收录速度取决于三件事：抓取预算、站点可信度、内链可达性。按下面顺序做，比盲目堆量有效得多。
+  </p>
+
+  <h3>第一阶段：建站后 0–7 天，先别急着发文章</h3>
+  <ul class="checks">
+    <li>每个子站装好 WordPress，固定链接设为 <code>/%postname%/</code>，关闭评论（避免垃圾评论拖累质量评分）</li>
+    <li>建四个必备页面：<b>About</b>（写清楚谁在运营、编辑原则）、<b>Contact</b>（真实可达邮箱）、<b>Privacy Policy</b>、<b>Editorial Policy</b></li>
+    <li>Google Search Console 逐站添加，提交 sitemap；Bing Webmaster 同步添加</li>
+    <li>把 <code>&lt;INDEXNOW_KEY&gt;.txt</code> 上传到每个站根目录，IndexNow 能让 Bing 在几分钟内抓取</li>
+    <li>站点地图用 WordPress 自带的 <code>/wp-sitemap.xml</code> 即可，不必装重型 SEO 插件</li>
+  </ul>
+
+  <h3>第二阶段：8–30 天，只发精品</h3>
+  <ul class="checks">
+    <li>每站先发 <b>12–15 篇</b>，全部人工过一遍再发布。这个阶段的目标不是量，是让 Google 建立「这个站的内容值得抓」的判断</li>
+    <li>每篇至少 <b>3 个内链</b>，优先链向已收录的页面，形成抓取闭环</li>
+    <li>首页放「最新文章」和「热门分类」两个区块，给爬虫一个稳定入口</li>
+    <li>分类页要能索引，且每个分类下至少有 3 篇文章，否则先设为 noindex</li>
+    <li>观察 Search Console 的「已发现但未编入索引」数量，如果持续堆积，说明是内容质量而不是抓取问题</li>
+  </ul>
+
+  <h3>第三阶段：31–90 天，开始放量</h3>
+  <ul class="checks">
+    <li>每天每站 2–3 篇，保持稳定节奏。<b>不要一天发 50 篇</b>，突发量是明显的机器特征</li>
+    <li>每篇发布后立即 IndexNow 提交，Bing/Yandex 侧基本当天收录</li>
+    <li>Google 侧靠内链和 sitemap 的自然更新，不要用任何「快速收录」服务</li>
+    <li>开始做数据型页面：成本对比表、规格数据库、季节日历——这类页面被引用率高，是最快带来自然外链的资产</li>
+    <li>每周检查一次索引率（已编入索引 / 已提交），低于 60% 就停下来查质量，别继续加量</li>
+  </ul>
+
+  <div class="callout warn">
+    <span class="label">一个必须知道的事实</span>
+    <p>
+      Google 在 2023 年就关闭了 sitemap ping 接口，所谓的「Google 快速收录 API」只对招聘信息和直播开放，
+      对普通文章无效。市面上卖「24 小时收录」的服务，要么用的是 IndexNow（只对 Bing 有效），
+      要么是给你刷垃圾外链——后者会让站点在下一个算法更新里直接消失。
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 6 -->
+<section>
+  <h2>变现路径</h2>
+  <p class="sub">分三段走，每一段有明确的准入条件和切换信号。不要一上来就盯着 AdSense。</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:12%">阶段</th>
+        <th style="width:22%">渠道</th>
+        <th style="width:26%">准入门槛</th>
+        <th style="width:20%">预期收益</th>
+        <th style="width:20%">什么时候切换</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="tag">0–3 月</span></td>
+        <td>Amazon Associates</td>
+        <td>任意 3 笔成交即可过审，容易起步</td>
+        <td class="num">$50–200 / 月</td>
+        <td>成交稳定后申请提高佣金类目</td>
+      </tr>
+      <tr>
+        <td><span class="tag">1–4 月</span></td>
+        <td>Ezoic</td>
+        <td>无流量门槛，接受新站</td>
+        <td class="num">RPM $5–10</td>
+        <td>月 sessions 过 1 万后转 Mediavine</td>
+      </tr>
+      <tr>
+        <td><span class="tag">3–6 月</span></td>
+        <td>Google AdSense</td>
+        <td>18+ 篇原创、四页面齐全、域名满 1 个月</td>
+        <td class="num">RPM $8–18</td>
+        <td>与 Ezoic 二选一，不要同时挂</td>
+      </tr>
+      <tr>
+        <td><span class="tag warn">6–9 月</span></td>
+        <td>Mediavine</td>
+        <td>50,000 sessions / 月</td>
+        <td class="num">RPM $15–28</td>
+        <td>达到 Raptive 门槛后升级</td>
+      </tr>
+      <tr>
+        <td><span class="tag warn">9–12 月</span></td>
+        <td>Raptive / 直接赞助</td>
+        <td>100,000 pageviews / 月</td>
+        <td class="num">RPM $20–35</td>
+        <td>此时可接品牌直投，单价更高</td>
+      </tr>
+      <tr>
+        <td><span class="tag plain">长期</span></td>
+        <td>SaaS 循环分佣</td>
+        <td>仅限于 homeoffice 站</td>
+        <td class="num">$20–80 / 转化 / 月</td>
+        <td>一次转化持续收 12–24 个月</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>收入预期：保守模型</h3>
+  <p>
+    按 8 站 × 每站 150 篇 = 1200 篇的规模，假设平均每篇每月带来 60 次自然访问（这是新站第二年比较现实的数字，
+    远低于很多教程宣称的 300+）：
+  </p>
+
+  <div class="stats">
+    <div class="stat"><div class="v">7.2 万</div><div class="k">第 6–9 个月<br>月访问量（保守）</div></div>
+    <div class="stat"><div class="v">$12</div><div class="k">混合 RPM<br>展示广告 + 联盟</div></div>
+    <div class="stat"><div class="v">$860</div><div class="k">月收入<br>第 9 个月左右</div></div>
+    <div class="stat"><div class="v">$2.5k</div><div class="k">月收入上限<br>第 12–18 个月</div></div>
+  </div>
+
+  <p>
+    这个模型的关键假设是<strong>每篇 60 次/月</strong>。做得好的站可以到 150–200，做得差的可能只有 15。
+    差距几乎全部来自「这篇内容有没有提供别处找不到的东西」——具体数值、真实对比、可执行的检查清单。
+    纯改写做不到这一点，所以收入差距不是运营问题，是内容形态问题。
+  </p>
+
+  <div class="callout deny">
+    <span class="label">不建议做的事</span>
+    <p>
+      买外链、用 PBN 互链服务、批量提交目录站、买「老域名带权重」。这四件事在 2025 年的风险收益比已经彻底反转：
+      过去能带来 20% 提升，现在是一次算法更新归零的概率问题。自然外链只能靠数据型页面换。
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 7 -->
+<section>
+  <h2>90 天执行时间线</h2>
+
+  <div class="tl">
+    <div class="tl-item">
+      <div class="when">DAY 01 – 07</div>
+      <h4>地基</h4>
+      <p>
+        主域解析泛二级域名，Apache 配 <code>mod_vhost_alias</code>，8 个独立 WordPress 装好。
+        申请通配符 SSL（必须走 DNS-01 验证）。每站生成 Application Password 填入 <code>.env</code>。
+        跑 <code>python run.py check</code> 确认 8 个站全部返回 200。
+      </p>
+    </div>
+    <div class="tl-item">
+      <div class="when">DAY 08 – 21</div>
+      <h4>内容校准</h4>
+      <p>
+        先只做 diy 一个站。跑 <code>gen --count 10</code>，全部转成 draft，逐篇读。
+        按实际产出调整 <code>niche</code> / <code>audience</code> / <code>tone</code> 三个字段——
+        这三个字段的颗粒度直接决定文章像不像内行写的。校准到「读起来不需要大改」再推广到其余七站。
+      </p>
+    </div>
+    <div class="tl-item">
+      <div class="when">DAY 22 – 45</div>
+      <h4>首批上线</h4>
+      <p>
+        每站 12–15 篇精品，人工过审后发布。提交 Search Console 和 Bing，上传 IndexNow 密钥文件。
+        这个阶段不追求量，目标是拿到第一批索引。同步开始申请 Amazon Associates（有成交记录后再申请更容易过）。
+      </p>
+    </div>
+    <div class="tl-item">
+      <div class="when">DAY 46 – 75</div>
+      <h4>稳定放量</h4>
+      <p>
+        每天每站 2–3 篇，接到 Windows 任务计划程序自动跑。每周看一次索引率，
+        低于 60% 就停下来排查而不是继续加量。开始做数据型页面：成本对比表、规格数据库、季节日历。
+      </p>
+    </div>
+    <div class="tl-item">
+      <div class="when">DAY 76 – 90</div>
+      <h4>变现接入</h4>
+      <p>
+        流量起来后接 Ezoic（无门槛），同时申请 AdSense。两个都过就只留 RPM 高的那个。
+        检查每个站的联盟链接点击率，淘汰零点击的推荐位——推荐位数量不是越多越好。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 8 -->
+<section>
+  <h2>预算与风险</h2>
+
+  <table>
+    <thead><tr><th style="width:34%">项目</th><th style="width:22%">金额</th><th style="width:44%">说明</th></tr></thead>
+    <tbody>
+      <tr><td>主域名</td><td class="num">$12 / 年</td><td>二级域名不需要额外买，泛解析即可</td></tr>
+      <tr><td>服务器</td><td class="num">已有</td><td>8 个 WordPress 建议 4G 内存起步，否则并发吃紧</td></tr>
+      <tr><td>Wildcard SSL</td><td class="num">$0</td><td>Let's Encrypt 免费，需 DNS-01 验证</td></tr>
+      <tr><td>DeepSeek API</td><td class="num">$15–30 / 月</td><td>按每月 700 篇、含重试与加长版本估算</td></tr>
+      <tr><td>配图</td><td class="num">$0–20 / 月</td><td>用 CC0 图库或本地 AI 生成，注意不要用有版权的水印图</td></tr>
+      <tr><td><b>合计</b></td><td class="num"><b>≈ $30 / 月</b></td><td>不含人力。这是这条路能成立的根本原因</td></tr>
+    </tbody>
+  </table>
+
+  <h3>五个真实风险</h3>
+  <table>
+    <thead><tr><th style="width:26%">风险</th><th style="width:14%">概率</th><th style="width:60%">应对</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>算法更新导致流量腰斩</td>
+        <td><span class="tag deny">必然发生</span></td>
+        <td>不把鸡蛋放一个站。单站收入占比不超过 25%，任何一站归零不影响现金流</td>
+      </tr>
+      <tr>
+        <td>批量内容被识别</td>
+        <td><span class="tag warn">中高</span></td>
+        <td>控制发布节奏、保持内容形态多样（教程 / 对比 / 数据 / 词条混着做）、有真实可核对的数值</td>
+      </tr>
+      <tr>
+        <td>AdSense 拒审</td>
+        <td><span class="tag warn">中</span></td>
+        <td>先用 Ezoic 起步；拒审后不要反复提交，间隔 30 天并补齐四页面和作者信息</td>
+      </tr>
+      <tr>
+        <td>版权投诉</td>
+        <td><span class="tag">低</span></td>
+        <td>只采集标了 public-domain / cc-by 的源；reference-only 的源严格只取事实，靠 prompt 硬约束</td>
+      </tr>
+      <tr>
+        <td>模型输出质量漂移</td>
+        <td><span class="tag">低</span></td>
+        <td>每月抽 20 篇人工复核；关键事实（价格、规格）用固定数据表兜底，不依赖模型记忆</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <span class="label">一句话总结</span>
+    <p>
+      技术方案已经全部写好并跑通，成本低到可以忽略。真正决定成败的是内容里有没有
+      <strong>别处找不到的具体信息</strong>。AI 能解决「写出来」，解决不了「凭什么信你」——
+      后者靠的是每个站里那些愿意花两小时核对一个数字的部分。
+    </p>
+  </div>
+</section>
+
+<footer>
+  <p>
+    配套代码位于 <code>site-farm/</code>，入口见 <code>README.md</code>。
+    Apache 泛域名配置在 <code>scripts/apache-wildcard-subdomain.conf</code>，
+    先跑 <code>scripts\setup.bat</code> 再执行 <code>scripts\daily.bat</code>。
+  </p>
+</footer>
+
+</div>
+</body>
+</html>

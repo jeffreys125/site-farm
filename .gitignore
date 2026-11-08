@@ -1,0 +1,9 @@
+.env
+.venv/
+data/*.db
+output/preview/
+output/logs/
+output/sitemap/
+output/content-plan.csv
+__pycache__/
+*.pyc
