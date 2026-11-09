@@ -142,20 +142,102 @@ C:\Windows\System32\drivers\etc\hosts
 
 ## 五、DNS 配置
 
-上线前在域名商处加两条记录：
+上线前在域名商处加两条记录（**两条都要**，`*` 不覆盖裸域）：
 
-| 类型 | 主机记录 | 值 |
-|---|---|---|
-| A | `@` | 服务器公网 IP |
-| A | `*` | 服务器公网 IP |
+| 类型 | 主机记录 | 值 | 说明 |
+|---|---|---|---|
+| A | `@` | 服务器公网 IP | 裸域，hub 站用 |
+| A | `*` | 服务器公网 IP | 泛解析，覆盖 diy / pet / camp … 全部子域 |
 
-`*` 泛解析覆盖全部子域，以后加新站不用再动 DNS。
+加完等 10 分钟，然后验证——**这一步别跳过**，泛解析没生效的话后面全是白忙：
+
+```bash
+nslookup diy.yourdomain.com      # 必须返回你的服务器 IP
+nslookup yourdomain.com          # 裸域也要返回同一个 IP
+```
+
+返回 `NXDOMAIN` 或别的 IP，说明记录没生效或填错了主机记录（有些域名商要求填 `*.yourdomain.com` 而不是 `*`）。
+
+> 服务器在中国大陆的话，域名必须先完成 ICP 备案，否则 80/443 会被运营商拦截。没备案之前只能用 `IP:8080` 测试，站点能跑但绑不了域名。
 
 ---
 
 ## 六、HTTPS（三选一）
 
-### 方案 A：Caddy 反代（推荐，全自动证书）
+### 方案 A：宝塔反向代理（你的情况，推荐）
+
+你机器上宝塔 Apache 已经占着 80/443，所以让宝塔在前台收流量、转发给容器。**一个泛域名站点就能覆盖全部 9 个站**，不用建 9 次。
+
+**第 1 步 · 先确认容器活着**（不碰 DNS，纯本机验证）：
+
+```bash
+curl -I -H "Host: diy.yourdomain.com" http://127.0.0.1:8080/
+```
+
+返回 `200` 再往下做；返回 404 说明容器没起来或 `DOMAIN` 填错了。
+
+**第 2 步 · 建站点**：宝塔 → 网站 → 添加站点
+
+| 字段 | 填什么 |
+|---|---|
+| 域名 | 两行：`yourdomain.com` 和 `*.yourdomain.com` |
+| 根目录 | 随便建个空目录，反代用不到它 |
+| PHP 版本 | **纯静态**（不要选 PHP，否则多一层无用的 FastCGI） |
+
+**第 3 步 · 加反向代理**：点进这个站点 → 反向代理 → 添加
+
+| 字段 | 填什么 |
+|---|---|
+| 代理名称 | `sitefarm` |
+| 目标 URL | `http://127.0.0.1:8080` |
+| 发送域名 | **`$host`** ← 这一格是成败关键 |
+
+为什么必须是 `$host`：容器用 Host 头的第一段决定读哪个目录（`mod_vhost_alias` 的 `%1`）。发送域名留默认的 `127.0.0.1`，9 个站的请求会全部落到主域，看起来就像“所有子域都打开了同一个站”。
+
+加完打开站点「配置文件」，确认有这三行（宝塔一般会自动写，缺了手动补）：
+
+```apache
+ProxyPreserveHost On
+ProxyPass / http://127.0.0.1:8080/
+ProxyPassReverse / http://127.0.0.1:8080/
+```
+
+**第 4 步 · 上证书**：站点设置 → SSL → Let's Encrypt
+
+- 域名列表填 `yourdomain.com` 和 `*.yourdomain.com`
+- 验证方式必须选 **DNS 验证**（泛域名不支持文件验证），先在宝塔「计划任务 / DNS」里配好阿里云或腾讯云的 API 密钥
+- 签发成功后打开「强制 HTTPS」
+
+**第 5 步 · 告诉容器现在走 https**：
+
+```ini
+SITE_SCHEME=https
+```
+
+```bash
+docker compose up -d web pipeline
+```
+
+不改这一步，WordPress 会一直把访客跳回 `http://`，浏览器报重定向次数过多。
+
+**第 6 步 · 按顺序验证**（从内到外，出问题好定位）：
+
+```bash
+# 1. 容器直连，绕过宝塔
+curl -I -H "Host: diy.yourdomain.com" http://127.0.0.1:8080/
+
+# 2. 经过宝塔，绕过 DNS
+curl -I -H "Host: diy.yourdomain.com" http://127.0.0.1/
+
+# 3. 走真实域名
+curl -I https://diy.yourdomain.com/
+```
+
+三步都是 `200` 就通了。第 2 步失败是宝塔反代的问题，第 3 步失败是 DNS 或证书的问题。
+
+> 不想保留宝塔？停掉宝塔 Apache，`.env` 里改 `HTTP_PORT=80`，`docker compose up -d web`，容器直接对外，省掉一层转发。
+
+### 方案 B：Caddy 反代（不用宝塔时，全自动证书）
 
 ```bash
 docker run -d --name caddy --restart unless-stopped \
@@ -165,7 +247,7 @@ docker run -d --name caddy --restart unless-stopped \
   caddy:2
 ```
 
-写一个 Caddyfile（8 个子域要显式列出，泛域名证书需要 DNS 插件）：
+写一个 Caddyfile（子域要显式列出，泛域名证书需要 DNS 插件）：
 
 ```
 yourdomain.com, www.yourdomain.com,
@@ -189,21 +271,10 @@ SITE_SCHEME=https
 HTTP_PORT=8080        # 或不映射，只让 Caddy 走内网
 ```
 
-再 `docker compose up -d web pipeline` 重建配置。否则 WordPress 会一直跳回 http，产生重定向循环。
-
-### 方案 B：宝塔反向代理
-
-1. 宝塔新建站点 `diy.yourdomain.com`，根目录随便填（不会用到）
-2. 站点设置 → 反向代理 → 目标 `http://127.0.0.1:8080`，发送域名填 `$host`
-3. 申请 Let's Encrypt 证书（每个子域单独申请，或者用 DNS 方式申请泛域名）
-4. 八个站重复八次
-
-宝塔的反代默认会传 `X-Forwarded-Proto`，容器里的 wp-config 已经处理了这个头，`is_ssl()` 能正确返回 true。
-
 ### 方案 C：Cloudflare（最省事）
 
 1. 域名 NS 托管到 Cloudflare
-2. A 记录开橙云，指向服务器 IP，同样加 `*` 泛解析
+2. A 记录开橙云，指向服务器 IP，同样加 `@` 和 `*` 两条
 3. SSL/TLS 模式选 **Flexible**（源站是 http）或 **Full**（源站配了证书选这个）
 
 Cloudflare 会终止 TLS，回源走 http，所以 `.env` 里 `SITE_SCHEME=https`，`HTTP_PORT` 保持 8080。
@@ -261,6 +332,21 @@ Windows 的 PowerShell 里把 `$(date +%F)` 换成 `%date:~0,4%%date:~5,2%%date:
 ---
 
 ## 九、常见问题
+
+**绑了域名，所有子域打开都是同一个站**
+宝塔反代的「发送域名」没填 `$host`。填成 `127.0.0.1` 后，容器收到的 Host 头永远是 127.0.0.1，绕过了按子域选目录的逻辑，全部落到主域。
+
+**域名打不开，但 `127.0.0.1:8080` 正常**
+三种可能，按顺序查：DNS 没生效（`nslookup diy.yourdomain.com` 看返回 IP）、服务器防火墙没放行 80/443（阿里云/腾讯云还要单独看安全组）、域名没备案被运营商拦。
+
+**502 Bad Gateway**
+宝塔能收到请求但连不上容器。`docker compose ps` 看 web 是否 `Up`；`curl -I -H "Host: yourdomain.com" http://127.0.0.1:8080/` 看容器是否响应。容器在跑但 502，通常是宝塔的代理超时太短（默认 60 秒，装插件时容易超）。
+
+**上了 HTTPS 后浏览器报「重定向次数过多」**
+`.env` 里 `SITE_SCHEME` 还是 `http`。WordPress 会把 https 访客往 http 跳，反代又把他跳回来。改成 `https` 后 `docker compose up -d web pipeline` 重建配置。
+
+**改动 `.env` 里的 `DOMAIN` 之后站点没变**
+`wp-config.php` 里的 `WP_HOME` / `WP_SITEURL` 是首次安装时写死的，改 `.env` 只会影响新站。老站要改地址：`docker compose exec web wp option update home https://新域名 --allow-root --path=/var/www/sites/diy`（`siteurl` 同样一条）。或者干脆 `down -v` 重装。
 
 **容器起来了但站点 500**
 看 `docker compose logs web`。多半是 MySQL 还没就绪就被访问了，等 30 秒。如果持续报错，检查 `.env` 里 `DB_PASSWORD` 和 `MYSQL_ROOT_PASSWORD` 有没有混用。
