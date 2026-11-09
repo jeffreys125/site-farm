@@ -315,6 +315,40 @@ PUBLISH_STATUS=draft     # 前两个月保持 draft，人工过一遍
 
 然后 `docker compose up -d pipeline`。
 
+### 改了 `.env` 之后怎么生效
+
+先说最容易踩的：**`docker compose restart` 不会重新读 `.env`**。它只是把容器里的进程重启一遍，环境变量还是创建容器时那一份。改了 `.env` 必须用 `up -d`——它会重新解析文件、比对配置，只重建真正变了的容器。
+
+| 你改了 | 执行 | 为什么 |
+|---|---|---|
+| `.env` 里任何值 | `docker compose up -d` | 只有 `up` 会重读 `.env` 并重建变更的容器 |
+| `config/sites.yaml`（定位、受众、来源、互链） | `docker compose restart pipeline` | 这个文件是**挂载**进去的，不用重建镜像，但要在启动时重新渲染 |
+| `sitefarm/*.py`（prompt、查重逻辑） | `docker compose up -d --build pipeline` | 代码是**打进镜像**的，不是挂载，改完不重建等于没改 |
+| `Dockerfile` / `requirements.txt` | `docker compose up -d --build` | 同上，且要重新装依赖 |
+| `WP_ADMIN_PASSWORD` | 改了也没用 | 只在首次安装时用一次，老站要 `wp user update` |
+
+验证改动是否真的生效，别只看"容器起来了"：
+
+```bash
+docker compose config | grep -E "DOMAIN|SITE_SCHEME"    # .env 有没有被读到
+docker compose ps                                        # STATUS 里看是不是刚重建
+docker compose exec pipeline head -20 /app/runtime/sites.yaml   # 渲染后的实际配置
+```
+
+**`DOMAIN` / `SITE_SCHEME` 改了会怎样**：容器重建时会把每个站 `wp-config.php` 里的 `WP_HOME` / `WP_SITEURL` 重写成新地址（日志里出现 `[diy] address changed, rewriting wp-config -> ...`），同时更新数据库里的同名选项。没变则完全不碰，日志只有 `already installed, skipping`。
+
+**`DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 绝对不要直接改**：数据卷已经初始化过了，MySQL 里的密码不会跟着 `.env` 变，改完所有站立刻 500。正确顺序是先改数据库、再改文件：
+
+```bash
+# 1. 用旧密码进数据库改密码
+docker compose exec db mysql -uroot -p'旧root密码' -e \
+  "ALTER USER 'wp'@'%' IDENTIFIED BY '新密码'; ALTER USER 'root'@'localhost' IDENTIFIED BY '新root密码';"
+
+# 2. 再改 .env 里的两行
+# 3. 重建
+docker compose up -d
+```
+
 ---
 
 ## 八、备份
