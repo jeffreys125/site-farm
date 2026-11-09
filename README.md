@@ -15,7 +15,7 @@
 
 | | Docker（推荐） | 本地脚本 |
 |---|---|---|
-| 适合 | 一台机器上把八个站全跑起来 | 已有宝塔、站点已经建好 |
+| 适合 | 一台机器上把九个站全跑起来 | 已有宝塔、站点已经建好 |
 | 需要 | Docker Desktop / Docker Engine | Python 3.10+ |
 | 建站 | 自动，一条命令 | 手动装八个 WordPress |
 | 文档 | [`docs/deploy-docker.md`](docs/deploy-docker.md) | 下面的「快速开始」 |
@@ -27,8 +27,11 @@
 ```bash
 cp .env.docker.example .env     # 改 DOMAIN、数据库密码、DEEPSEEK_API_KEY
 docker compose up -d
-docker compose logs -f web      # 看八个站依次装好，实测约 2 分钟
+docker compose logs -f web      # 看九个站依次装好，实测约 2 分钟
 ```
+
+默认建 **9 个站**：1 个品牌主站（`example.com`）+ 8 个内容子站（`diy.` / `pet.` / `camp.` …）。
+数量由 `.env` 的 `SITES` 决定，加一个 id 就多一个站。
 
 首次启动会自动做这些事，**不需要手动进任何后台**：
 
@@ -38,6 +41,65 @@ docker compose logs -f web      # 看八个站依次装好，实测约 2 分钟
 - 流水线容器启动时自动读取这些密码
 
 默认端口 `8080`，和宝塔的 80/443 不冲突。域名、HTTPS、备份、排错的完整说明见 **[`docs/deploy-docker.md`](docs/deploy-docker.md)**。
+
+---
+
+## 改完 `.env` 之后怎么让它生效
+
+**一句话：`docker compose restart` 不会重新读 `.env`，必须用 `docker compose up -d`。**
+
+`restart` 只是把容器里的进程重启一遍，环境变量还是创建容器时的那一份，改了等于没改。`up -d` 才会重新解析 `.env`、比对配置，并且只重建真正变了的容器。
+
+| 改了什么 | 执行（均省略 `docker compose`） | 为什么 |
+|---|---|---|
+| `.env` 里的任何值 | `up -d` | 只有 `up` 会重读 `.env` |
+| `config/sites.yaml` | `restart pipeline` | 挂载文件，只需重跑渲染 |
+| `sitefarm/*.py` | `up -d --build pipeline` | 代码打进镜像，不重建不生效 |
+| `Dockerfile`、`requirements.txt` | `up -d --build` | 同上，还要重装依赖 |
+| `WP_ADMIN_PASSWORD` | 不用改 | 只在首次安装时用一次 |
+
+### 两个不能直接改的
+
+**`DB_PASSWORD` / `MYSQL_ROOT_PASSWORD`** —— 数据卷已经初始化过，MySQL 里的密码不会跟着 `.env` 变，直接改会让所有站立刻 500。必须先改数据库、再改文件：
+
+```bash
+docker compose exec db mysql -uroot -p'旧root密码' -e \
+  "ALTER USER 'wp'@'%' IDENTIFIED BY '新密码';"
+# 然后改 .env，再 docker compose up -d
+```
+
+**`DOMAIN` / `SITE_SCHEME`** —— 这两个可以放心改。容器重建时会自动把每个站 `wp-config.php` 里的 `WP_HOME` / `WP_SITEURL` 改写成新地址，同时更新数据库里的同名选项，日志里能看到：
+
+```
+[diy] address changed, rewriting wp-config -> https://diy.yourdomain.com
+```
+
+地址没变时完全不碰，只打一行 `already installed, skipping`。
+
+### 确认改动真的生效
+
+别只看"容器起来了"，三行命令验一下：
+
+```bash
+docker compose config | grep -E "DOMAIN|SITE_SCHEME"              # .env 有没有被读到
+docker compose ps                                                  # STATUS 里看是不是刚重建
+docker compose exec pipeline head -20 /app/runtime/sites.yaml      # 渲染后的实际配置
+```
+
+### 什么时候需要 `--build`
+
+改 `.env` **永远不需要** `--build`。只有改了打进镜像的东西才需要：
+
+- `sitefarm/` 下的 Python 代码
+- `docker/` 下的 Dockerfile、entrypoint、Apache 模板
+- `requirements.txt`
+
+```bash
+docker compose up -d --build pipeline    # 只重建流水线
+docker compose up -d --build             # 全部重建
+```
+
+有层缓存，通常 20–40 秒。完整的底层原因和更多场景见 [`docs/deploy-docker.md`](docs/deploy-docker.md) 第七节。
 
 ---
 
