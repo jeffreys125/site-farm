@@ -132,10 +132,11 @@ class Store:
 
     def is_duplicate(self, site: str, simhash_value: int, threshold: int = 3) -> bool:
         """Hamming distance on 64-bit simhash."""
+        probe = simhash_value & _SIMHASH_MASK
         for row in self.conn.execute(
             "SELECT simhash FROM articles WHERE site=? AND simhash IS NOT NULL", (site,)
         ):
-            if _hamming(simhash_value, int(row["simhash"])) <= threshold:
+            if _hamming(probe, int(row["simhash"])) <= threshold:
                 return True
         return False
 
@@ -155,7 +156,9 @@ class Store:
                 payload.get("excerpt", ""),
                 json.dumps(payload.get("tags", []), ensure_ascii=False),
                 json.dumps(payload.get("faq", []), ensure_ascii=False),
-                simhash(payload["body_html"]),
+                # SQLite INTEGER is signed 64-bit: a raw 64-bit simhash raises
+                # OverflowError on roughly half of all articles and kills gen.
+                simhash(payload["body_html"]) & _SIMHASH_MASK,
                 payload.get("word_count", 0),
                 "generated",
                 payload.get("source_url", ""),
@@ -311,6 +314,10 @@ class Store:
 # ---------------------------------------------------------------- helpers
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", text.lower())).strip()
+
+
+# SQLite integers are signed 64-bit; simhash fills all 64 bits.
+_SIMHASH_MASK = (1 << 63) - 1
 
 
 def _hamming(a: int, b: int) -> int:

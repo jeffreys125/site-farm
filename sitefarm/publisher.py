@@ -160,6 +160,13 @@ def publish_pending(
     status: str | None = None,
 ) -> dict:
     pending = store.get_articles(site.id, status="generated", limit=limit)
+    # mark_failed moves an article out of 'generated', so a transient failure
+    # (network hiccup, 502 while Apache reloads, expired token) used to strand
+    # it forever -- it could never be picked up again. Retry them.
+    if len(pending) < limit:
+        pending += store.get_articles(
+            site.id, status="failed", limit=limit - len(pending)
+        )
     result = {"attempted": len(pending), "published": 0, "exported": 0, "failed": 0, "errors": []}
     if not pending:
         return result
