@@ -82,6 +82,12 @@ services:
       DOMAIN: ${DOMAIN:-example.com}
       SITE_SCHEME: ${SITE_SCHEME:-http}
       WP_ADMIN_USER: ${WP_ADMIN_USER:-editor}
+      # Publish over the container network instead of the public origin: the
+      # domains resolve to the web container, which has no TLS. With
+      # SITE_SCHEME=https, publishing to https://<domain> fails with
+      # "SSL: WRONG_VERSION_NUMBER". Set to an empty value to go through the
+      # public URL instead.
+      WP_INTERNAL_BASE: ${WP_INTERNAL_BASE:-http://web}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       # Any OpenAI-compatible endpoint. Unset = DeepSeek.
       LLM_API_KEY: ${LLM_API_KEY:-}

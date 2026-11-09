@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -20,18 +21,26 @@ class WordPressPublisher:
     def __init__(self, site: SiteConfig, timeout: int = 60):
         self.site = site
         self.timeout = timeout
-        self.base = site.base_url.rstrip("/")
+        self.public = site.base_url.rstrip("/")
+        # Inside the compose network the site's own domain resolves to the web
+        # container (extra_hosts), and that container serves plain HTTP only.
+        # Publishing to https://<domain> there fails with SSL
+        # WRONG_VERSION_NUMBER, so requests go to the internal origin while the
+        # Host header keeps WordPress on the right site. Links come back from
+        # WordPress itself, so they stay on the public https origin.
+        self.base = (site.internal_base or site.base_url).rstrip("/")
         self.session = requests.Session()
         token = base64.b64encode(
             f"{site.wp.user}:{site.wp.app_password}".encode()
         ).decode()
-        self.session.headers.update(
-            {
-                "Authorization": f"Basic {token}",
-                "Content-Type": "application/json",
-                "User-Agent": "EditorialPipeline/1.0",
-            }
-        )
+        headers = {
+            "Authorization": f"Basic {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "EditorialPipeline/1.0",
+        }
+        if site.internal_base:
+            headers["Host"] = urlparse(self.public).netloc
+        self.session.headers.update(headers)
         self._terms: dict[tuple[str, str], int] = {}
 
     # --------------------------------------------------------------- checks

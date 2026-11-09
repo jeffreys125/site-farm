@@ -54,6 +54,11 @@ class SiteConfig:
     hub_url: str = ""
     siblings: list[str] = field(default_factory=list)
     disclosure: str = ""
+    # Where to reach WordPress when the public origin terminates TLS somewhere
+    # else. Inside the compose network the domain name resolves to the web
+    # container, which speaks plain HTTP only, so publishing over https://<domain>
+    # dies with SSL WRONG_VERSION_NUMBER.
+    internal_base: str = ""
 
     @property
     def host(self) -> str:
@@ -167,6 +172,7 @@ def load_config(path: str | Path, mock: bool = False) -> ProjectConfig:
                 hub_url=item.get("hub_url", ""),
                 siblings=item.get("siblings", []) or [],
                 disclosure=item.get("disclosure", ""),
+                internal_base=_env("WP_INTERNAL_BASE") or item.get("internal_base", "") or "",
             )
         )
 

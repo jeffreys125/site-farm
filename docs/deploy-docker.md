@@ -605,6 +605,29 @@ docker compose exec web cat /var/www/sites/.sitefarm-credentials.env
 **`publish` 报 403 / 404**
 `.env` 里 `DOMAIN` 和 `config/sites.yaml` 里的域名对不上。流水线启动时会把配置里的 `example.com` 替换成 `DOMAIN`，但如果你手工改过配置里的域名就不生效了。统一改成 `example.com` 再让它自动替换。
 
+**`publish` 报 `SSL: WRONG_VERSION_NUMBER`**
+
+```
+HTTPSConnectionPool(host='diy.你的域名', port=443): Max retries exceeded
+(Caused by SSLError(SSL: WRONG_VERSION_NUMBER))
+```
+
+这不是证书没签好，是**流水线在容器内部连自己的域名**。`docker-compose.yml` 的 `extra_hosts` 把九个站的域名都固定解析到 web 容器（`172.30.0.10`），而 web 容器只监听 80。`SITE_SCHEME=https` 时它去连 `https://diy.你的域名:443`，等于对着一台只说 HTTP 的 Apache 发起 TLS 握手，于是报这个错。
+
+当前版本发布默认走容器网络：`WP_INTERNAL_BASE=http://web`，请求带 `Host: diy.你的域名`，WordPress 认得出是哪个站；返回的文章链接仍由 WordPress 按 `WP_HOME` 生成，依旧是 `https://`。升级后执行 `docker compose up -d --build pipeline` 即可，`.env` 不用改。
+
+想让发布绕回公网（比如 web 跑在另一台机器上），把 `WP_INTERNAL_BASE` 留空再重建 pipeline，前提是容器内能解析到宝塔的 443：
+
+```ini
+WP_INTERNAL_BASE=
+```
+
+判断当前走哪条路：
+
+```bash
+docker compose exec -T pipeline env | grep WP_INTERNAL_BASE
+```
+
 **重启会不会重装站点、丢数据**
 不会。entrypoint 判断 `wp-config.php` 存在就跳过，数据在 `wp_sites` 和 `db_data` 两个 volume 里。
 除非你 `docker compose down -v`（`-v` 会删卷，慎用）。
