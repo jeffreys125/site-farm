@@ -146,6 +146,8 @@ site-farm/
 ├─ scripts/
 │  ├─ setup.bat               一次性环境安装
 │  ├─ daily.bat               每日跑批
+│  ├─ doctor.ps1              域名自检（Windows）
+│  ├─ doctor.sh               域名自检（Linux / 宝塔）
 │  └─ apache-wildcard-subdomain.conf
 ├─ docs/
 │  ├─ plan.html               完整方案（先看这个）

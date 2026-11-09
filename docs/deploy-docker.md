@@ -450,3 +450,74 @@ docker ps --format '{{.Label "com.docker.compose.project"}}' | sort | uniq -c
 
 **想删掉某个站**
 删 `SITES` 里的 id、删配置段、`docker compose exec web rm -rf /var/www/sites/<id>`，数据库手动 drop。
+
+---
+
+## 十、只有一个子域能打开，其他打不开
+
+这个现象**几乎从来不是容器的问题**。先在容器里排除一遍，再往外查。
+
+### 第一步：30 秒确认容器是好的
+
+```bash
+docker compose exec web sh -c 'for h in example.com diy.example.com pet.example.com camp.example.com; do printf "%-28s " "$h"; curl -s -H "Host: $h" http://127.0.0.1/ | grep -o "<title>[^<]*" | head -1; done'
+```
+
+把 `example.com` 换成你的域名。正常输出是这样，**每个站的标题都不一样**：
+
+```
+example.com                  <title>Northline Hub
+diy.example.com              <title>Northline Diy
+pet.example.com              <title>Northline Pet
+camp.example.com             <title>Northline Camp
+```
+
+如果这里 9 个站都正常（一定是正常的，`docker compose logs web | grep "sites ready"` 能看到 9 个目录），那问题 100% 在容器的外面：DNS、宝塔站点、或者证书。
+
+### 第二步：跑自检脚本，一次定位
+
+```bash
+# Windows（Git Bash / PowerShell 都行）
+powershell -ExecutionPolicy Bypass -File scripts\doctor.ps1 yourdomain.com
+
+# Linux / 宝塔
+chmod +x scripts/doctor.sh && ./scripts/doctor.sh yourdomain.com
+```
+
+它会逐个域名检查 DNS → 证书 → HTTP 状态 → **实际应答的站点标题**，最后给结论。必须跑到 200 才算通过。
+
+> 这个脚本要在**宿主机**上跑，不能在容器里跑。容器的 `extra_hosts` 把 9 个域名都强行指到 web 容器，在容器里测永远是通的，等于没测。
+
+### 第三步：对号入座
+
+| 症状 | 原因 | 修法 |
+|---|---|---|
+| 浏览器报 `DNS_PROBE_FINISHED_NXDOMAIN`，只有 diy 能解析 | DNS 只加了 `@` 和 `diy`，没有 `*` 泛解析 | 加一条 A 记录，主机记录 `*`，值填服务器 IP |
+| 报 `NET::ERR_CERT_COMMON_NAME_INVALID`，点“继续访问”能看到内容 | 证书只签了 `yourdomain.com` 和 `diy.yourdomain.com` 两个名字 | 重新申请，域名填 `yourdomain.com` 和 `*.yourdomain.com`，**验证方式选 DNS** |
+| 能打开，但**每个子域显示的都是 diy 的内容** | 反代没传 `Host` 头，或宝塔只建了 diy 一个站点、其他子域落到默认站 | 建一个 `*.yourdomain.com` 站点；反代的“发送域名”改成 `$host` |
+| 404 / 403 | 宝塔站点的域名列表里没有这个子域 | 站点 → 域名管理 → 补 `*.yourdomain.com` |
+| 一直跳回 `http://` | `.env` 的 `SITE_SCHEME` 还是 `http` | 改成 `https`，`docker compose up -d web` |
+
+### 最常见的那个坑：宝塔里只需要一个站点，不是九个
+
+如果你的宝塔里有 `diy.yourdomain.com` 这一个站点、没有 `*.yourdomain.com`，那么其他子域的请求**没有站点匹配**，Apache 会把它交给默认站点处理——表现就是“pet 打开是 diy 的内容”，或者“只有 diy 正常”。
+
+正确做法是**一个站点覆盖全部**：
+
+```
+站点域名：
+    yourdomain.com
+    *.yourdomain.com
+```
+
+站点根目录随便填（不会用到），PHP 版本选纯静态，反向代理指向 `http://127.0.0.1:8080`，发送域名 `$host`。这样以后加第 10 个站也不用动宝塔。
+
+### 如果你的环境是 HTTP 还没上证书
+
+先跳过证书那一栏，直接测路由是不是通的：
+
+```bash
+SCHEME=http PORT=8080 ./scripts/doctor.sh yourdomain.com
+```
+
+这时候 WordPress 会 301 跳回 80 端口（因为 `WP_HOME` 里没有端口号），**这种跳转说明路由是通的**，配好域名和证书就正常了。真正要警惕的是“所有域名跳到同一个地址”。
