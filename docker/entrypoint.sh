@@ -133,6 +133,28 @@ if [ ! -f "${CORE}/wp-load.php" ]; then
 fi
 
 # --------------------------------------------------------------- helpers ----
+# wp-config.php pins WP_HOME / WP_SITEURL as constants, and WordPress ignores
+# the database rows once those constants exist. So changing DOMAIN or
+# SITE_SCHEME in .env would leave every existing site on the old address --
+# `up -d` recreates the container but the files on the volume stay as they were.
+# Rewrite the two lines on every boot; it is a no-op when nothing moved.
+sync_site_url() {
+    local id="$1" url="$2"
+    local dir="${WP_ROOT}/${id}"
+    local cfg="${dir}/wp-config.php"
+
+    grep -q "define('WP_HOME', '${url}');" "$cfg" 2>/dev/null && return 0
+
+    log "[${id}] address changed, rewriting wp-config -> ${url}"
+    sed -i "s|define('WP_HOME', '.*');|define('WP_HOME', '${url}');|" "$cfg"
+    sed -i "s|define('WP_SITEURL', '.*');|define('WP_SITEURL', '${url}');|" "$cfg"
+
+    # Keep the database in step too: plugins and some themes read the raw
+    # options instead of the constants.
+    wp option update home "$url" --allow-root --path="$dir" --quiet >/dev/null 2>&1 || true
+    wp option update siteurl "$url" --allow-root --path="$dir" --quiet >/dev/null 2>&1 || true
+}
+
 # Creates a database with PHP's mysqli. Three ways to do this all fail:
 #   - the mysql CLI: MariaDB client rejects MySQL 8's self-signed TLS cert
 #   - wp db query:   it connects *to* the database it is about to create
@@ -170,6 +192,7 @@ install_site() {
     fi
 
     if [ -f "${dir}/wp-config.php" ]; then
+        sync_site_url "$id" "$url"
         log "[${id}] already installed, skipping"
         return 0
     fi
