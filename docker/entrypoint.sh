@@ -70,6 +70,19 @@ if [ -z "$WP_ADMIN_PASSWORD" ]; then
     log "generated admin password: ${WP_ADMIN_PASSWORD}   <-- save this, it is not shown again"
 fi
 
+# Say out loud which account the sites get. 'editor' is the compose default, so
+# seeing it means WP_ADMIN_USER never reached the container -- otherwise people
+# spend hours wondering why logging in with the name from .env says "no such
+# user" while the reason is a typo'd or commented-out line.
+if [ "$WP_ADMIN_USER" = "editor" ]; then
+    log "admin account: editor <${WP_ADMIN_EMAIL}>  (built-in default)"
+    log "               WP_ADMIN_USER is not set in .env -- edit it there, then"
+    log "               'docker compose up -d web'. Existing sites keep their old"
+    log "               account, so this only renames/creates on the next boot."
+else
+    log "admin account: ${WP_ADMIN_USER} <${WP_ADMIN_EMAIL}>"
+fi
+
 # ------------------------------------------------------------------ db ------
 # Readiness is probed with PHP's mysqli, not the mysql CLI. Two reasons:
 #   - the CLI shipped by default-mysql-client is MariaDB's, which refuses

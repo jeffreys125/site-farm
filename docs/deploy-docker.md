@@ -420,19 +420,58 @@ Windows 的 PowerShell 里把 `$(date +%F)` 换成 `%date:~0,4%%date:~5,2%%date:
 当前版本会在每次启动时补一次检查：用户名不存在就创建；如果这个邮箱已经被旧管理员占用，就**把旧账号改名过来**（保留文章归属、设置和密码都不会丢）。日志里能看到：
 
 ```
-[diy] renamed administrator #1 to 'jeffreys' (that email was already in use)
+[diy] renamed administrator #1 to 'yourname' (that email was already in use)
 ```
 
-**旧版本立即手修**（不用重建镜像）：
+**第一步：确认容器真的读到了你的 `.env`**
+
+改了半天没反应，十次有八次是变量根本没传进去。启动日志里本来就有一行，直接看它：
 
 ```bash
-# 1. 先看现在到底是哪个用户
-docker compose exec -T web wp user list --allow-root --path=/var/www/sites/diy --fields=ID,user_login,user_email,roles
+docker compose logs web | grep "admin account"
+```
 
-# 2. 新建管理员，9 个站都来一遍
+```
+[sitefarm] admin account: yourname <you@example.com>          # 读到了
+[sitefarm] admin account: editor <editor@example.com>  (built-in default)   # 没读到
+```
+
+看到 `built-in default` 就是 `.env` 没生效。再确认一次容器里的原始值：
+
+```bash
+docker compose exec -T web env | grep WP_ADMIN
+```
+
+- 输出 `WP_ADMIN_USER=editor` → `.env` 没被读到，或者变量名拼错、值被注释吃掉（见本节末尾），先解决这个；
+- 输出 `WP_ADMIN_USER=你的名字` → 变量没问题，是账号还没同步，往下看。
+
+顺便看一眼 `.env` 在哪个目录：`docker compose` 只读**项目根目录**的 `.env`，也就是 `docker-compose.yml` 旁边那个。你在别的目录改的同名文件不会生效。
+
+**第二步：站点是不是真的重装了**
+
+`docker compose down` **不删卷**，九个站的 `wp-config.php` 还在 `wp_sites` 卷里，重新 `up` 时每个站都会走 `already installed, skipping`，管理员当然还是老的那个。要真正重装：
+
+```bash
+docker compose down -v      # -v 才会删掉 wp_sites 和 db_data
+docker compose up -d --build
+```
+
+**`-v` 会清空全部文章和设置**，只在你确实想从零开始时用。
+
+**第三步：站点不想重装，直接把账号改过来**
+
+先看现在是谁：
+
+```bash
+docker compose exec -T web wp user list --allow-root --path=/var/www/sites/diy --fields=ID,user_login,user_email,roles
+```
+
+新建管理员（九个站都来一遍）：
+
+```bash
 for s in hub diy woodworking pet camp kitchen auto garden homeoffice; do
-  docker compose exec -T web wp user create jeffreys root@cnpkjp.com \
-    --role=administrator --user_pass='你的密码' --allow-root --path=/var/www/sites/$s
+  docker compose exec -T web wp user create <你的用户名> <你的邮箱> \
+    --role=administrator --user_pass='<你的密码>' --allow-root --path=/var/www/sites/$s
 done
 ```
 
@@ -442,19 +481,20 @@ done
 docker compose exec -T web wp eval "
   global \$wpdb;
   \$wpdb->update(\$wpdb->users,
-    array('user_login' => 'jeffreys', 'user_nicename' => 'jeffreys'),
+    array('user_login' => '<你的用户名>', 'user_nicename' => '<你的用户名>'),
     array('ID' => 1));
 " --allow-root --path=/var/www/sites/diy
 
-docker compose exec -T web wp user update 1 --user_pass='你的密码' \
-  --user_email='root@你的域名.com' --allow-root --path=/var/www/sites/diy
+docker compose exec -T web wp user update 1 --user_pass='<你的密码>' \
+  --user_email='<你的邮箱>' --allow-root --path=/var/www/sites/diy
 ```
 
 `wp user update --user_login` 是**改不了**登录名的（会提示 `User logins can't be changed`），必须走上面这条 SQL。
 
-**两个容易忽略的点**
+**三个容易忽略的点**
 
-- `.env` 里 `#` 前面**必须有空格**才算注释。`WP_ADMIN_USER=jeffreys # 说明` 没问题，`WP_ADMIN_USER=jeffreys#说明` 会把 `jeffreys#说明` 整个当成用户名。
+- `.env` 里 `#` 前面**必须有空格**才算注释。`WP_ADMIN_USER=yourname # 说明` 没问题，`WP_ADMIN_USER=yourname#说明` 会把 `yourname#说明` 整个当成用户名。
+- 值**不要加引号**。`WP_ADMIN_USER="yourname"` 在 compose 里不会报错，但引号可能被当成值的一部分，登录时就对不上。
 - 密码别用和用户名一样。WordPress 会接受，但宝塔的 WAF 和后续装的安全插件经常拦这类弱密码登录。
 
 **`publish` 报 `site 'diy' has no WordPress application password configured`**
