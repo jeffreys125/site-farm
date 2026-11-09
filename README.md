@@ -101,6 +101,25 @@ docker compose up -d --build             # 全部重建
 
 有层缓存，通常 20–40 秒。完整的底层原因和更多场景见 [`docs/deploy-docker.md`](docs/deploy-docker.md) 第七节。
 
+### 想让流程全自动跑
+
+**`PUBLISH_STATUS=publish` 不等于自动发布**，它只决定“发出去的文章是公开还是草稿”。要自动跑，得同时打开循环：
+
+```ini
+DAILY_ENABLED=true       # 开循环，否则 pipeline 只是 idle 空壳
+DAILY_GEN_COUNT=3        # 每站每轮 3 篇
+PUBLISH_STATUS=publish   # 直接公开；写 draft 就只进草稿箱
+DEEPSEEK_API_KEY=sk-...  # 没 key 时生成会失败，上面三条全白设
+```
+
+```bash
+docker compose up -d pipeline
+```
+
+它**在启动的那一刻就跑第一轮**，不是等到明天凌晨。想要固定时间，把 `DAILY_ENABLED` 设回 `false`，用宿主机计划任务调 `docker compose exec pipeline ...`，示例见文档第七节。
+
+> 切到 `publish` 之后，AI 写的每一篇都会立刻公开、没有人看过。建议前 1–2 个月保持 `draft` 人工过一遍，AdSense 审核期间尤其如此。
+
 ---
 
 ## 快速开始（Windows 本地脚本）

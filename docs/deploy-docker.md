@@ -305,15 +305,43 @@ docker compose exec pipeline python run.py submit
 docker compose exec web bash
 ```
 
-**开每日自动跑**，改 `.env`：
+### 让流程全自动跑起来（改 `PUBLISH_STATUS` 不会自动发布）
+
+先纠正一个常见误解：**`PUBLISH_STATUS=publish` 只是“发出去的文章是公开状态”，不是“自动发布”**。它只在每日循环里被引用，循环不开，这个值是死的。
+
+要真正全自动，`.env` 里三件事必须同时成立：
 
 ```ini
-DAILY_ENABLED=true
-DAILY_GEN_COUNT=3        # 每站每天 3 篇 = 24 篇/天
-PUBLISH_STATUS=draft     # 前两个月保持 draft，人工过一遍
+DAILY_ENABLED=true       # ① 开循环，否则 pipeline 只是 idle 空壳
+DAILY_GEN_COUNT=3        # ② 每站每轮 3 篇，8 个内容站 = 24 篇/轮
+PUBLISH_STATUS=publish   # ③ 直接公开发布（写 draft 就只进草稿箱）
+DEEPSEEK_API_KEY=sk-...  # ④ 没 key 时 gen 直接失败，前三条全白设
 ```
 
-然后 `docker compose up -d pipeline`。
+然后 `docker compose up -d pipeline`（环境变量要重建容器才生效）。
+
+**它一启动就跑第一轮，不是等到明天。** 循环是「跑一轮 → sleep 24 小时 → 再跑」，所以时间点等于你执行 `up -d` 的那一刻。想固定在凌晨 4 点跑，别用 `DAILY_ENABLED`，把它设回 `false`，改用宿主机的计划任务：
+
+```bash
+# Linux crontab -e
+0 4 * * * cd /opt/site-farm && docker compose exec -T pipeline python run.py fetch && \
+          docker compose exec -T pipeline python run.py gen --count 3 && \
+          docker compose exec -T pipeline python run.py publish --count 60 --wp-status publish && \
+          docker compose exec -T pipeline python run.py submit
+```
+
+Windows 用任务计划程序跑一个 `.bat`，内容同上但换成 `cd /d D:\site-farm`。
+
+每轮 `publish --count 60` 是单站上限，正常不会顶到。
+
+> **切 publish 之前想清楚**：这一步之后，AI 写的每一篇都会立刻公开可访问，没有人看过。生成器有事实核查约束，但它不是不会错。前 1–2 个月建议保持 `draft`，在 WordPress 后台人工过一遍再批量发布；等 prompt 调到“基本不用改”的程度，再切 `publish`。AdSense 审核期间尤其重要——审核员会看到你最新的 20 篇。
+
+**改了 `PUBLISH_STATUS` 会不会把以前攒的草稿一起发出去？** 不会。文章推送成功后在本地台账里已是 `published` 状态，不会被重复捞取。想让旧草稿转公开，去 WordPress 后台批量改，或者：
+
+```bash
+docker compose exec web wp post list --post_status=draft --format=ids --allow-root --path=/var/www/sites/diy \
+  | xargs -r docker compose exec -T web wp post update --post_status=publish --allow-root --path=/var/www/sites/diy
+```
 
 ### 改了 `.env` 之后怎么生效
 
@@ -385,9 +413,27 @@ Windows 的 PowerShell 里把 `$(date +%F)` 换成 `%date:~0,4%%date:~5,2%%date:
 **容器起来了但站点 500**
 看 `docker compose logs web`。多半是 MySQL 还没就绪就被访问了，等 30 秒。如果持续报错，检查 `.env` 里 `DB_PASSWORD` 和 `MYSQL_ROOT_PASSWORD` 有没有混用。
 
-**`publish` 报 401**
-Application Password 没加载。检查：`docker compose exec pipeline env | grep WP_APP_PASSWORD`。
-如果为空，说明 web 容器还没装完站点，等它跑完再重启 pipeline：`docker compose restart pipeline`。
+**`publish` 报 `site 'diy' has no WordPress application password configured`**
+
+流水线启动时没拿到密码。正常情况下它会**等 web 把 9 个站装完再渲染配置**（日志里是 `waiting for the web tier to finish provisioning` → `loaded 9 application password(s)`），所以这个错只在这几种情况出现：
+
+- web 容器是刚刚 `down -v` 重建的，而 pipeline 没重启 → `docker compose restart pipeline`
+- 手工改过 `config/sites.yaml` 里的 `wp.app_password`，把渲染值覆盖了
+- 站点 id 拼写与 `WP_APP_PASSWORD_<ID>` 不一致（id 会转大写）
+
+确认密码在不在渲染后的配置里：
+
+```bash
+docker compose exec pipeline grep -A3 'wp:' /app/runtime/sites.yaml | head -8
+```
+
+`app_password` 是空字符串就重启 pipeline。如果重启后还空，看 web 侧：
+
+```bash
+docker compose exec web cat /var/www/sites/.sitefarm-credentials.env
+```
+
+这个文件没有对应 key，说明那个站装失败了，去看 `docker compose logs web | grep FAILED`。
 
 **`publish` 报 403 / 404**
 `.env` 里 `DOMAIN` 和 `config/sites.yaml` 里的域名对不上。流水线启动时会把配置里的 `example.com` 替换成 `DOMAIN`，但如果你手工改过配置里的域名就不生效了。统一改成 `example.com` 再让它自动替换。

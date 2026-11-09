@@ -274,6 +274,14 @@ MU
 CRED_FILE="${WP_ROOT}/.sitefarm-credentials.env"
 touch "$CRED_FILE"
 
+# Readiness marker for the pipeline container. Removed here and re-created once
+# every site is installed, so the pipeline can tell "still provisioning" from
+# "done". Without it the pipeline only sees a non-empty credentials file and
+# carries on after the *first* site -- the remaining eight passwords are not
+# written yet, and publishing silently fails for all of them.
+READY_FILE="${WP_ROOT}/.sitefarm-ready"
+rm -f "$READY_FILE"
+
 ensure_app_password() {
     local id="$1"
     local dir="${WP_ROOT}/${id}"
@@ -317,5 +325,6 @@ chown www-data:www-data "$CRED_FILE" 2>/dev/null || true
 
 log "sites ready: $(ls -1 "$WP_ROOT" 2>/dev/null | grep -v '^\.' | tr '\n' ' ')"
 log "credentials: ${CRED_FILE} ($(grep -c '^WP_APP_PASSWORD_' "$CRED_FILE" 2>/dev/null || echo 0) site(s))"
+touch "$READY_FILE"
 log "starting Apache ..."
 exec "$@"

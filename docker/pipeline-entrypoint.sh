@@ -20,6 +20,7 @@ SITE_SCHEME="${SITE_SCHEME:-http}"
 TEMPLATE="${CONFIG_TEMPLATE:-/app/config/sites.yaml}"
 RUNTIME="${SITEFARM_CONFIG:-/app/runtime/sites.yaml}"
 CRED_FILE="${WP_CREDENTIALS_FILE:-/wpdata/.sitefarm-credentials.env}"
+READY_FILE="${WP_READY_FILE:-/wpdata/.sitefarm-ready}"
 
 mkdir -p "$(dirname "$RUNTIME")" /app/data /app/output
 
@@ -28,6 +29,33 @@ if [ ! -f "$TEMPLATE" ]; then
     log "       mount your config into /app/config/sites.yaml"
     exit 1
 fi
+
+# ------------------------------------------------------------ wait for web --
+# Order matters: the passwords are written by the web container only after it
+# finishes installing every site (~100 s on a clean volume). Rendering before
+# that bakes app_password: '' into the runtime config, and every publish then
+# fails with "site 'xxx' has no WordPress application password configured" --
+# with no hint that the file simply did not exist yet. So wait first, render
+# second. On a restart the file is already there and this returns immediately.
+wait_for_credentials() {
+    [ "${WAIT_FOR_WEB:-true}" = "true" ] || return 0
+    log "waiting for the web tier to finish provisioning (first boot takes ~2 min) ..."
+    for _ in $(seq 1 120); do
+        # The marker is written by the web container only after the last site
+        # is installed. A non-empty credentials file is not enough: it appears
+        # after the *first* site, and rendering then would bake in one password
+        # and leave the other eight empty.
+        if [ -f "$READY_FILE" ] && grep -q '^WP_APP_PASSWORD_' "$CRED_FILE" 2>/dev/null; then
+            log "web tier is ready, application passwords present"
+            return 0
+        fi
+        sleep 3
+    done
+    log "WARN: web tier did not report ready within 6 min -- rendering anyway"
+    log "      publishing will fail until 'docker compose restart pipeline'"
+}
+
+wait_for_credentials
 
 # ---------------------------------------------------------- credentials -----
 if [ -f "$CRED_FILE" ]; then
@@ -98,29 +126,17 @@ with open(path, "w", encoding="utf-8") as fh:
     yaml.safe_dump(cfg, fh, allow_unicode=True, sort_keys=False)
 
 print(f"[pipeline] rendered {path}: {domain} / {scheme} / {passworded} password(s)")
+if passworded == 0:
+    print(
+        "[pipeline] WARN: no application passwords were available for rendering.\n"
+        "[pipeline]       publish will fail with 'has no WordPress application password'.\n"
+        "[pipeline]       wait until the web tier logs 'sites ready', then:\n"
+        "[pipeline]       docker compose restart pipeline",
+        file=sys.stderr,
+    )
 PY
 
 log "config rendered -> ${RUNTIME} (${DOMAIN}, ${SITE_SCHEME})"
-
-# ------------------------------------------------------------ wait for web --
-if [ "${WAIT_FOR_WEB:-true}" = "true" ]; then
-    log "waiting for the web tier ..."
-    for _ in $(seq 1 80); do
-        if python - <<'PY' 2>/dev/null
-import urllib.error
-import urllib.request
-try:
-    urllib.request.urlopen("http://web/", timeout=3)
-except urllib.error.HTTPError:
-    pass          # any HTTP status means Apache is up; WordPress may still be installing
-PY
-        then
-            log "web tier is responding"
-            break
-        fi
-        sleep 3
-    done
-fi
 
 # ------------------------------------------------------------------ run -----
 if [ "${DAILY_ENABLED:-false}" = "true" ]; then
