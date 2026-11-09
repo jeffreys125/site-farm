@@ -100,7 +100,8 @@ def cmd_fetch(cfg: ProjectConfig, store: Store, args) -> None:
 def cmd_gen(cfg: ProjectConfig, store: Store, args) -> None:
     llm = DeepSeek(cfg.deepseek)
     if cfg.deepseek.mock and not args.mock:
-        print("! no DEEPSEEK_API_KEY found - running in mock mode (placeholder copy)", file=sys.stderr)
+        print("! no API key found (DEEPSEEK_API_KEY / LLM_API_KEY) - running in mock mode",
+              file=sys.stderr)
 
     for site in _target_sites(cfg, args):
         queue = store.pop_keywords(site.id, limit=args.count)

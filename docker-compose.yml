@@ -83,6 +83,10 @@ services:
       SITE_SCHEME: ${SITE_SCHEME:-http}
       WP_ADMIN_USER: ${WP_ADMIN_USER:-editor}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      # Any OpenAI-compatible endpoint. Unset = DeepSeek.
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
       INDEXNOW_KEY: ${INDEXNOW_KEY:-}
       DAILY_ENABLED: ${DAILY_ENABLED:-false}
       DAILY_GEN_COUNT: ${DAILY_GEN_COUNT:-3}

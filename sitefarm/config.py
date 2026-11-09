@@ -110,15 +110,21 @@ def load_config(path: str | Path, mock: bool = False) -> ProjectConfig:
     data_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Any OpenAI-compatible endpoint works, not just DeepSeek: point
+    # LLM_BASE_URL at the provider and set LLM_MODEL to the name it expects.
+    # The DEEPSEEK_* names keep working, so existing .env files are untouched.
+    api_key = _env("LLM_API_KEY") or _env("DEEPSEEK_API_KEY", ds.get("api_key", "") or "")
+    base_url = _env("LLM_BASE_URL") or ds.get("base_url", "https://api.deepseek.com")
+    model = _env("LLM_MODEL") or ds.get("model", "deepseek-chat")
+
     deepseek = DeepSeekConfig(
-        # environment variables win, so keys never have to live in the yaml
-        api_key=_env("DEEPSEEK_API_KEY", ds.get("api_key", "") or ""),
-        base_url=ds.get("base_url", "https://api.deepseek.com"),
-        model=ds.get("model", "deepseek-chat"),
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
         temperature=float(ds.get("temperature", 0.75)),
         max_tokens=int(ds.get("max_tokens", 8192)),
         requests_per_minute=int(ds.get("requests_per_minute", 40)),
-        mock=mock or not bool(_env("DEEPSEEK_API_KEY", ds.get("api_key", "") or "")),
+        mock=mock or not bool(api_key),
     )
 
     sites: list[SiteConfig] = []

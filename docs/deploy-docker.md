@@ -497,6 +497,89 @@ docker compose exec -T web wp user update 1 --user_pass='<你的密码>' \
 - 值**不要加引号**。`WP_ADMIN_USER="yourname"` 在 compose 里不会报错，但引号可能被当成值的一部分，登录时就对不上。
 - 密码别用和用户名一样。WordPress 会接受，但宝塔的 WAF 和后续装的安全插件经常拦这类弱密码登录。
 
+**`DAILY_ENABLED=true` 开了，站上却没有文章**
+
+按顺序看这四步，基本一步定位：
+
+```bash
+# 1. 循环到底有没有起来
+docker compose logs pipeline | grep -E "idle mode|daily mode|cycle start"
+
+# 2. 容器里的变量值是不是你写的样子
+docker compose exec -T pipeline env | grep -E "DAILY_|PUBLISH_STATUS|DEEPSEEK"
+
+# 3. 台账：抓了多少素材、生成了几篇、发了几篇
+docker compose exec -T pipeline python run.py status
+```
+
+| 你看到的 | 含义 |
+|---|---|
+| 日志里只有 `idle mode` | 循环没启动，见下面的「一行一个变量」 |
+| `daily mode: cycle every 86400s, 3 article(s) per site` 但之后没有 `cycle start` | 还在等 web 装站，正常，最多 3 分钟 |
+| `cycle start` 之后只有 `[diy] fetched ...` | 正在抓素材，九个站约 2–3 分钟 |
+| `[diy] + 标题 (1420w) -> slug` | 正在写文章，一篇 40–90 秒 |
+| `[diy] attempted=3 published=3` | 已发到 WordPress |
+
+**最常见的原因是 `.env` 写成了同一行**。`.env` 是**一行一个变量**，不接受空格分隔：
+
+```ini
+DAILY_ENABLED=true DAILY_GEN_COUNT=3        # 错：DAILY_ENABLED 的值变成整串，不等于 true
+```
+
+```ini
+DAILY_ENABLED=true                          # 对
+DAILY_GEN_COUNT=3
+```
+
+写成第一种不会报错，`DAILY_ENABLED` 的值是 `"true DAILY_GEN_COUNT=3"`，判断永远为假，容器安静地进 idle 模式——不生成、不调 API、也不提示。用上面第 2 条命令就能看到。
+
+**一轮要跑多久。** `DAILY_GEN_COUNT=3` 是**每站 3 篇**，九个站就是 27 篇，`publish` 排在所有站写完之后才执行（不是写完一篇就发一篇）。真实模型下：
+
+| 阶段 | 耗时 |
+|---|---|
+| `fetch` 抓九个站的 RSS | 2–3 分钟 |
+| `gen` 27 篇 | 20–45 分钟 |
+| `publish` | 1–2 分钟 |
+
+所以循环开始后半小时内站上是空的，这是预期行为。想看进度就 `docker compose logs -f pipeline`，每写完一篇都会打印标题和字数。
+
+**判断 API 到底有没有被调用**：`DEEPSEEK_API_KEY` 为空时不会报错，而是自动进 mock 模式（写占位短文，不调模型）。日志开头会有一行 `! no DEEPSEEK_API_KEY found - running in mock mode`。如果站上出现了「This is a mock article body」这种文章，说明是 key 没传进容器，不是模型的问题。
+
+**换成其他 AI（Kimi / 通义 / OpenAI / 本地模型）**
+
+底层走的是 OpenAI 兼容的 `/chat/completions`，任何兼容该协议的供应商都能直接换。改 `.env` 三个变量即可，不用动代码：
+
+```ini
+LLM_API_KEY=sk-...                              # 优先生效，覆盖 DEEPSEEK_API_KEY
+LLM_BASE_URL=https://api.moonshot.cn/v1
+LLM_MODEL=你的模型名                             # 以供应商控制台写的为准
+```
+
+常用供应商的 `LLM_BASE_URL`：
+
+| 供应商 | base_url |
+|---|---|
+| DeepSeek（默认） | `https://api.deepseek.com` |
+| 月之暗面 Kimi | `https://api.moonshot.cn/v1` |
+| 通义千问（百炼） | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` |
+| OpenRouter（聚合） | `https://openrouter.ai/api/v1` |
+| OpenAI | `https://api.openai.com/v1` |
+| 本地 Ollama | `http://host.docker.internal:11434/v1` |
+
+改完 `docker compose up -d pipeline`（`.env` 只在重建容器时重读）。先用一篇试水，别一上来跑 27 篇：
+
+```bash
+docker compose exec -T pipeline python run.py gen --site diy --count 1
+```
+
+几点说明：
+
+- `LLM_BASE_URL` 要带版本路径（`/v1`、`/v4`），程序会在后面拼 `/chat/completions`。
+- 模型不支持 `response_format: json_object` 也不会崩：收到 400 会自动去掉这个参数重试一次，靠解析兜底。质量会比原生 JSON 模式差一点，但能用。
+- 换模型后文章风格会变，`config/sites.yaml` 里每站的 `tone` 和 prompt 仍照旧生效。
+- 用本地 Ollama 时容器要能访问宿主机；Linux 上把 `host.docker.internal` 换成 `172.17.0.1`，或者给 pipeline 加 `extra_hosts: ["host.docker.internal:host-gateway"]`。
+
 **`publish` 报 `site 'diy' has no WordPress application password configured`**
 
 流水线启动时没拿到密码。正常情况下它会**等 web 把 9 个站装完再渲染配置**（日志里是 `waiting for the web tier to finish provisioning` → `loaded 9 application password(s)`），所以这个错只在这几种情况出现：

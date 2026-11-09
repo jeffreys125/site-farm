@@ -68,6 +68,14 @@ class DeepSeek:
                 if r.status_code == 200:
                     data = r.json()
                     return data["choices"][0]["message"]["content"]
+                # Not every OpenAI-compatible provider implements
+                # response_format=json_object; several answer 400 instead of
+                # ignoring it. Drop the hint and let _parse_json clean up.
+                if r.status_code == 400 and json_mode:
+                    json_mode = False
+                    payload.pop("response_format", None)
+                    last_err = f"HTTP 400 with json mode, retrying without it: {r.text[:200]}"
+                    continue
                 if r.status_code in (429, 500, 502, 503, 504):
                     last_err = f"HTTP {r.status_code}: {r.text[:300]}"
                     time.sleep((2 ** attempt) + random.random())
