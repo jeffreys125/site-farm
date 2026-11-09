@@ -397,7 +397,53 @@ Application Password 没加载。检查：`docker compose exec pipeline env | gr
 除非你 `docker compose down -v`（`-v` 会删卷，慎用）。
 
 **内存占用**
-8 个站空闲时约 600–900 MB（Apache + mod_php + MySQL）。建议宿主机至少 2 GB，4 GB 更稳。
+8 个站空闲时约 550–900 MB。建议宿主机至少 2 GB，4 GB 更稳。实测拆分见下一条。
+
+**为什么是三个容器，不能合成一个吗**
+
+9 个站装完、完全空闲时的实测（`docker stats --no-stream`）：
+
+| 容器 | 镜像 | 空闲内存 | 职责 |
+|---|---|---|---|
+| `db` | `mysql:8.0` | 420 MB | 9 个库，全部文章、设置、用户 |
+| `web` | 自建，807 MB | 121 MB | Apache + mod_php，跑 9 个 WordPress |
+| `pipeline` | 自建，190 MB | **0.7 MB** | DeepSeek 生成 + 发布，空闲时 `sleep infinity` |
+
+`pipeline` 合并进 `web` 省不下任何东西（它就占 0.7 MB），反而多两个麻烦：镜像要装 Python 依赖，体积 +200 MB，改一行代码就得重建这 1 GB 的镜像；以及 `docker compose up` 重建 web 时会顺手杀掉正在跑的生成任务（一次 `gen` 要几十秒到几分钟）。
+
+`db` 独立是硬要求，不是洁癖：改一行 Apache 配置要连着重启数据库；PHP 进程 OOM 会拖死 MySQL；MySQL 自己的崩溃恢复也要独占进程。这三件事绑在一个容器里，任何一次小改动都变成全站停机。
+
+真要合成一个容器，只能用 supervisord 同时管 `mysqld` + `apache2` + `python`，代价是：
+
+- 任一进程挂了容器不退出，`restart: unless-stopped` 和 healthcheck 全部失效，故障变成静默的
+- 三条日志混进一个流，排错只能 grep
+- 没法单独重启或升级某一层
+- 备份前必须停整个容器，才能保证 MySQL 数据一致
+- 镜像 1.1 GB 起，重建一次几分钟
+
+换来的只是 `docker ps` 少两行。不建议。
+
+**不想看到 pipeline 这个容器**
+
+日常不跑批的时候可以停掉，它只是个空壳：
+
+```bash
+docker compose stop pipeline     # docker ps 只剩 db 和 web
+docker compose start pipeline    # 要用之前先启动，否则 exec 会报 not running
+```
+
+`db` 和 `web` 不能这么干，两个都是常驻服务。
+
+**`docker ps` 里冒出来八、九个容器**
+
+说明跑过多次 `up`，而且项目名不同（换了目录名、或者加了 `-p` 参数），每组都是独立的 db/web/pipeline 三件套。先看有哪些项目：
+
+```bash
+docker compose ls
+docker ps --format '{{.Label "com.docker.compose.project"}}' | sort | uniq -c
+```
+
+确认是废弃的再清：`docker compose -p <项目名> down -v`。**`-v` 会删数据卷**，执行前想清楚哪个项目是真的在用的。
 
 **想加第 9 个站**
 改 `.env` 的 `SITES` 加一个 id，重启 web 容器。然后在 `config/sites.yaml` 里补一段配置，并在 `docker-compose.yml` 的 `extra_hosts` 里补一行域名映射。
