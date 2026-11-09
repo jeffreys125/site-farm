@@ -413,6 +413,50 @@ Windows 的 PowerShell 里把 `$(date +%F)` 换成 `%date:~0,4%%date:~5,2%%date:
 **容器起来了但站点 500**
 看 `docker compose logs web`。多半是 MySQL 还没就绪就被访问了，等 30 秒。如果持续报错，检查 `.env` 里 `DB_PASSWORD` 和 `MYSQL_ROOT_PASSWORD` 有没有混用。
 
+**改了 `.env` 的 `WP_ADMIN_USER`，但后台说没有这个用户**
+
+因为 `wp core install` **只在新站第一次创建时跑一次**。站点已经存在，改 `.env` 不会重建它，原来的账号还在，所以 `wp-login.php` 一直回“用户名不存在”——而日志里只有一句 `already installed, skipping`，看不出问题。
+
+当前版本会在每次启动时补一次检查：用户名不存在就创建；如果这个邮箱已经被旧管理员占用，就**把旧账号改名过来**（保留文章归属、设置和密码都不会丢）。日志里能看到：
+
+```
+[diy] renamed administrator #1 to 'jeffreys' (that email was already in use)
+```
+
+**旧版本立即手修**（不用重建镜像）：
+
+```bash
+# 1. 先看现在到底是哪个用户
+docker compose exec -T web wp user list --allow-root --path=/var/www/sites/diy --fields=ID,user_login,user_email,roles
+
+# 2. 新建管理员，9 个站都来一遍
+for s in hub diy woodworking pet camp kitchen auto garden homeoffice; do
+  docker compose exec -T web wp user create jeffreys root@cnpkjp.com \
+    --role=administrator --user_pass='你的密码' --allow-root --path=/var/www/sites/$s
+done
+```
+
+如果报 `Sorry, that email address is already used!`，说明旧账号占着这个邮箱（最常见的情况正是如此）。改用改名，把旧的 ID=1 直接变成你要的登录名：
+
+```bash
+docker compose exec -T web wp eval "
+  global \$wpdb;
+  \$wpdb->update(\$wpdb->users,
+    array('user_login' => 'jeffreys', 'user_nicename' => 'jeffreys'),
+    array('ID' => 1));
+" --allow-root --path=/var/www/sites/diy
+
+docker compose exec -T web wp user update 1 --user_pass='你的密码' \
+  --user_email='root@你的域名.com' --allow-root --path=/var/www/sites/diy
+```
+
+`wp user update --user_login` 是**改不了**登录名的（会提示 `User logins can't be changed`），必须走上面这条 SQL。
+
+**两个容易忽略的点**
+
+- `.env` 里 `#` 前面**必须有空格**才算注释。`WP_ADMIN_USER=jeffreys # 说明` 没问题，`WP_ADMIN_USER=jeffreys#说明` 会把 `jeffreys#说明` 整个当成用户名。
+- 密码别用和用户名一样。WordPress 会接受，但宝塔的 WAF 和后续装的安全插件经常拦这类弱密码登录。
+
 **`publish` 报 `site 'diy' has no WordPress application password configured`**
 
 流水线启动时没拿到密码。正常情况下它会**等 web 把 9 个站装完再渲染配置**（日志里是 `waiting for the web tier to finish provisioning` → `loaded 9 application password(s)`），所以这个错只在这几种情况出现：

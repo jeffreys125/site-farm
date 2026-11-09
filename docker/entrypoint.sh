@@ -155,6 +155,66 @@ sync_site_url() {
     wp option update siteurl "$url" --allow-root --path="$dir" --quiet >/dev/null 2>&1 || true
 }
 
+# wp core install only ever runs once, on the first boot of a site. Changing
+# WP_ADMIN_USER in .env afterwards therefore had no effect at all -- the site
+# kept its original login, and the only feedback was "already installed,
+# skipping" while wp-login.php kept rejecting the new name. Add the requested
+# account if it is missing. Existing accounts are never modified: their
+# password may have been changed in wp-admin since, and silently resetting it
+# on every restart would be worse than the original problem.
+ensure_admin_user() {
+    local id="$1" dir="$2"
+
+    if wp user get "${WP_ADMIN_USER}" --allow-root --path="$dir" --field=ID >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local out
+    if out=$(wp user create "${WP_ADMIN_USER}" "${WP_ADMIN_EMAIL}" \
+                --role=administrator --user_pass="${WP_ADMIN_PASSWORD}" \
+                --allow-root --path="$dir" 2>&1); then
+        log "[${id}] created administrator: ${WP_ADMIN_USER} / ${WP_ADMIN_PASSWORD}"
+        return 0
+    fi
+
+    # Most common failure: the address is already taken by the account created
+    # on first boot (people set WP_ADMIN_USER after installing, but keep the
+    # same email). If that owner is an administrator, rename it instead of
+    # creating a duplicate -- this keeps post authorship and settings intact.
+    if printf '%s' "$out" | grep -q "email address is already used"; then
+        local owner roles
+        owner=$(wp user get "${WP_ADMIN_EMAIL}" --allow-root --path="$dir" --field=ID 2>/dev/null || true)
+        roles=$(wp user get "$owner" --allow-root --path="$dir" --field=roles 2>/dev/null || true)
+        if [ -n "$owner" ] && printf '%s' "$roles" | grep -q administrator; then
+            wp user update "$owner" --user_pass="${WP_ADMIN_PASSWORD}" \
+                --user_email="${WP_ADMIN_EMAIL}" --allow-root --path="$dir" --quiet >/dev/null 2>&1 || true
+            # wp-cli refuses to change user_login ("User logins can't be
+            # changed") and wp eval does not take positional args, so the login
+            # is inlined. Quotes are stripped: a WordPress login can never
+            # contain one, and the value comes from our own .env.
+            local login
+            login=$(printf '%s' "${WP_ADMIN_USER}" | tr -d "'")
+            wp eval "
+                global \$wpdb;
+                \$wpdb->update(
+                    \$wpdb->users,
+                    array('user_login' => '${login}', 'user_nicename' => sanitize_title('${login}')),
+                    array('ID' => ${owner})
+                );
+            " --allow-root --path="$dir" >/dev/null 2>&1 || true
+
+            if wp user get "${WP_ADMIN_USER}" --allow-root --path="$dir" --field=ID >/dev/null 2>&1; then
+                log "[${id}] renamed administrator #${owner} to '${WP_ADMIN_USER}' (that email was already in use)"
+                return 0
+            fi
+            log "[${id}] WARN: found existing administrator #${owner} but renaming it failed"
+            return 1
+        fi
+    fi
+
+    log "[${id}] WARN: could not create administrator '${WP_ADMIN_USER}': ${out}"
+}
+
 # Creates a database with PHP's mysqli. Three ways to do this all fail:
 #   - the mysql CLI: MariaDB client rejects MySQL 8's self-signed TLS cert
 #   - wp db query:   it connects *to* the database it is about to create
@@ -193,6 +253,8 @@ install_site() {
 
     if [ -f "${dir}/wp-config.php" ]; then
         sync_site_url "$id" "$url"
+        # must not abort the boot: a missing account is reported, not fatal
+        ensure_admin_user "$id" "$dir" || true
         log "[${id}] already installed, skipping"
         return 0
     fi

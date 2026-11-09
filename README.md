@@ -56,7 +56,8 @@ docker compose logs -f web      # 看九个站依次装好，实测约 2 分钟
 | `config/sites.yaml` | `restart pipeline` | 挂载文件，只需重跑渲染 |
 | `sitefarm/*.py` | `up -d --build pipeline` | 代码打进镜像，不重建不生效 |
 | `Dockerfile`、`requirements.txt` | `up -d --build` | 同上，还要重装依赖 |
-| `WP_ADMIN_PASSWORD` | 不用改 | 只在首次安装时用一次 |
+| `WP_ADMIN_USER` | `up -d web` | 缺这个账号会自动补建，邮箱被占则把旧管理员改名 |
+| `WP_ADMIN_PASSWORD` | 改了不影响已有账号 | 只在建账号时用一次，之后要在后台改 |
 
 ### 两个不能直接改的
 
