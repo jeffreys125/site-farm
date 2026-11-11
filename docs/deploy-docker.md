@@ -49,13 +49,14 @@ cd site-farm
 cp .env.docker.example .env
 ```
 
-打开 `.env`，**至少改这四个**：
+打开 `.env`，**至少改这几项**：
 
 ```ini
 DOMAIN=yourdomain.com          # 你的主域名
 DB_PASSWORD=一个强密码
 MYSQL_ROOT_PASSWORD=另一个强密码
-DEEPSEEK_API_KEY=sk-xxxx       # 没有可以先空着，能起站但生成不了文章
+LLM_PROVIDER=deepseek           # 或 newapi 接自建端点，见第七节
+DEEPSEEK_API_KEY=sk-xxxx       # 留空也能起站，但会静默进 mock 模式
 ```
 
 然后：
@@ -315,7 +316,7 @@ docker compose exec web bash
 DAILY_ENABLED=true       # ① 开循环，否则 pipeline 只是 idle 空壳
 DAILY_GEN_COUNT=3        # ② 每站每轮 3 篇，8 个内容站 = 24 篇/轮
 PUBLISH_STATUS=publish   # ③ 直接公开发布（写 draft 就只进草稿箱）
-DEEPSEEK_API_KEY=sk-...  # ④ 没 key 时 gen 直接失败，前三条全白设
+LLM_API_KEY=...          # ④ 没 key 会静默进 mock 模式，发布占位假文，务必填
 ```
 
 然后 `docker compose up -d pipeline`（环境变量要重建容器才生效）。
@@ -506,7 +507,7 @@ docker compose exec -T web wp user update 1 --user_pass='<你的密码>' \
 docker compose logs pipeline | grep -E "idle mode|daily mode|cycle start"
 
 # 2. 容器里的变量值是不是你写的样子
-docker compose exec -T pipeline env | grep -E "DAILY_|PUBLISH_STATUS|DEEPSEEK"
+docker compose exec -T pipeline env | grep -E "DAILY_|PUBLISH_STATUS|LLM_|DEEPSEEK"
 
 # 3. 台账：抓了多少素材、生成了几篇、发了几篇
 docker compose exec -T pipeline python run.py status
@@ -543,42 +544,52 @@ DAILY_GEN_COUNT=3
 
 所以循环开始后半小时内站上是空的，这是预期行为。想看进度就 `docker compose logs -f pipeline`，每写完一篇都会打印标题和字数。
 
-**判断 API 到底有没有被调用**：`DEEPSEEK_API_KEY` 为空时不会报错，而是自动进 mock 模式（写占位短文，不调模型）。日志开头会有一行 `! no DEEPSEEK_API_KEY found - running in mock mode`。如果站上出现了「This is a mock article body」这种文章，说明是 key 没传进容器，不是模型的问题。
+**判断 API 到底有没有被调用**：`LLM_API_KEY` / `DEEPSEEK_API_KEY` 都为空时不会报错，而是自动进 mock 模式（写占位短文，不调模型）。日志开头会有一行 `! no API key found (DEEPSEEK_API_KEY / LLM_API_KEY) - running in mock mode`。如果站上出现了「This is a mock article body」，说明 key 没传进容器，不是模型的问题。
 
-**换成其他 AI（Kimi / 通义 / OpenAI / 本地模型）**
+**换成其他 AI（DeepSeek / 自建 New API / 任意 OpenAI 兼容端点）**
 
-底层走的是 OpenAI 兼容的 `/chat/completions`，任何兼容该协议的供应商都能直接换。改 `.env` 三个变量即可，不用动代码：
+底层走 OpenAI 兼容的 `/chat/completions`。用 `LLM_PROVIDER` 选预设，改 `.env` 即可，不用动代码：
 
 ```ini
-LLM_API_KEY=sk-...                              # 优先生效，覆盖 DEEPSEEK_API_KEY
-LLM_BASE_URL=https://api.moonshot.cn/v1
-LLM_MODEL=你的模型名                             # 以供应商控制台写的为准
+# A. DeepSeek 官方（默认）
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-...
+
+# B. 自建 New API，例如 dots3-note-prev（注释掉 A，启用 B）
+# LLM_PROVIDER=newapi
+# LLM_API_KEY=ak-...
+# LLM_BASE_URL=https://你的域名/v1
+# LLM_MODEL=dots3-note-prev
+# LLM_THINKING=off
 ```
 
-常用供应商的 `LLM_BASE_URL`：
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `LLM_PROVIDER` | `deepseek` / `newapi` / `custom` | `deepseek` |
+| `LLM_API_KEY` | 通用 key，优先于 `DEEPSEEK_API_KEY` | 空 |
+| `LLM_BASE_URL` | 端点，必须带 `/v1`、不要尾斜杠 | 跟随预设 |
+| `LLM_MODEL` | 模型名 | 跟随预设 |
+| `LLM_THINKING` | `on` / `off` / `auto` | deepseek=on、newapi=off、custom=auto |
+| `LLM_MAX_TOKENS` | 单次生成上限 | 8192 |
 
-| 供应商 | base_url |
-|---|---|
-| DeepSeek（默认） | `https://api.deepseek.com` |
-| 月之暗面 Kimi | `https://api.moonshot.cn/v1` |
-| 通义千问（百炼） | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` |
-| OpenRouter（聚合） | `https://openrouter.ai/api/v1` |
-| OpenAI | `https://api.openai.com/v1` |
-| 本地 Ollama | `http://host.docker.internal:11434/v1` |
+**推理模型必须关思考**：`dots3-note-prev`、Qwen3 这类模型会把 8192 tokens 全花在 `reasoning_content` 上，返回里没有 `content`，文章生成直接失败。实测同一篇长文：不关思考 125 秒 / 8192 tokens / 只有 36194 字符思考、无正文；关思考 49 秒 / 2282 tokens / 8669 字符合法 JSON。`newapi` 预设默认关思考，会发送 `chat_template_kwargs: {"enable_thinking": false}` 和 `reasoning_effort: "none"`；`deepseek` 预设不发送这两个参数，官方 API 请求保持干净。忘了关也不会再崩成 `error: 'content'`，客户端会给出明确修复提示。
 
-改完 `docker compose up -d pipeline`（`.env` 只在重建容器时重读）。先用一篇试水，别一上来跑 27 篇：
+改完 `docker compose up -d pipeline`（`.env` 只在重建容器时重读）。**先自检，再用一篇试水**：
 
 ```bash
+docker compose exec -T pipeline python run.py llm-check
 docker compose exec -T pipeline python run.py gen --site diy --count 1
 ```
 
+`llm-check` 打印当前生效配置（密钥打码）并发一个最小真实请求，报告 HTTP 状态、耗时、token 用量、是否返回 `reasoning_content`、JSON 能否解析。
+
 几点说明：
 
-- `LLM_BASE_URL` 要带版本路径（`/v1`、`/v4`），程序会在后面拼 `/chat/completions`。
+- `LLM_BASE_URL` 要带版本路径（`/v1`、`/v4`），程序会在后面拼 `/chat/completions`。不带 `/v1` 会 404，结尾多一个 `/` 会 308。
 - 模型不支持 `response_format: json_object` 也不会崩：收到 400 会自动去掉这个参数重试一次，靠解析兜底。质量会比原生 JSON 模式差一点，但能用。
-- 换模型后文章风格会变，`config/sites.yaml` 里每站的 `tone` 和 prompt 仍照旧生效。
-- 用本地 Ollama 时容器要能访问宿主机；Linux 上把 `host.docker.internal` 换成 `172.17.0.1`，或者给 pipeline 加 `extra_hosts: ["host.docker.internal:host-gateway"]`。
+- `config/sites.yaml` 的 `project.deepseek` 段只需保留 `temperature` / `max_tokens` 等通用项；非 DeepSeek 供应商的端点和模型请在 `.env` 里填。
+- 换模型后文章风格会变，`config/sites.yaml` 里每站的 `tone` 和 prompt 仍照旧生效；`min_words` 只是 prompt 目标，不是硬闸门，换模型后抽查字数。
+- 本地 Ollama 用 `LLM_PROVIDER=custom` + `LLM_THINKING=on`；容器要能访问宿主机，Linux 上把 `host.docker.internal` 换成 `172.17.0.1`，或者给 pipeline 加 `extra_hosts: ["host.docker.internal:host-gateway"]`。
 
 **`publish` 报 `site 'diy' has no WordPress application password configured`**
 
@@ -643,7 +654,7 @@ docker compose exec -T pipeline env | grep WP_INTERNAL_BASE
 |---|---|---|---|
 | `db` | `mysql:8.0` | 420 MB | 9 个库，全部文章、设置、用户 |
 | `web` | 自建，807 MB | 121 MB | Apache + mod_php，跑 9 个 WordPress |
-| `pipeline` | 自建，190 MB | **0.7 MB** | DeepSeek 生成 + 发布，空闲时 `sleep infinity` |
+| `pipeline` | 自建，190 MB | **0.7 MB** | AI 生成 + 发布，空闲时 `sleep infinity` |
 
 `pipeline` 合并进 `web` 省不下任何东西（它就占 0.7 MB），反而多两个麻烦：镜像要装 Python 依赖，体积 +200 MB，改一行代码就得重建这 1 GB 的镜像；以及 `docker compose up` 重建 web 时会顺手杀掉正在跑的生成任务（一次 `gen` 要几十秒到几分钟）。
 

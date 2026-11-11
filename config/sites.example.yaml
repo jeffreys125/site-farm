@@ -4,19 +4,26 @@
 # Copy this file to config/sites.yaml and edit it. Everything here is data:
 # the pipeline code never needs to change when you add a site.
 #
-# Secrets are read from environment variables first, so you can keep them out
-# of the file entirely:
-#   DEEPSEEK_API_KEY, INDEXNOW_KEY, WP_APP_PASSWORD_<SITEID_UPPERCASE>
+# Secrets and the AI endpoint are read from environment variables first, so
+# they never have to live in this file:
+#   LLM_PROVIDER, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_THINKING,
+#   LLM_MAX_TOKENS, DEEPSEEK_API_KEY, INDEXNOW_KEY,
+#   WP_APP_PASSWORD_<SITEID_UPPERCASE>
 # ---------------------------------------------------------------------------
 
 project:
   brand: "Northline Media"
   contact_email: "editor@example.com"
 
+  # Key name stays `deepseek` for backwards compatibility (the renderer in
+  # docker/pipeline-entrypoint.sh guards this path when rewriting URLs).
+  # This section now configures any OpenAI-compatible provider; values in
+  # .env win. For a non-DeepSeek provider set LLM_PROVIDER / LLM_BASE_URL /
+  # LLM_MODEL in .env -- the endpoint defaults below are then ignored.
   deepseek:
-    api_key: ""                       # prefer the DEEPSEEK_API_KEY env var
+    api_key: ""                       # prefer LLM_API_KEY / DEEPSEEK_API_KEY
     base_url: "https://api.deepseek.com"
-    model: "deepseek-chat"            # deepseek-chat (V3) is cheapest for bulk copy
+    model: "deepseek-chat"
     temperature: 0.75
     max_tokens: 8192
     requests_per_minute: 40

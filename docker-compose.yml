@@ -89,10 +89,14 @@ services:
       # public URL instead.
       WP_INTERNAL_BASE: ${WP_INTERNAL_BASE:-http://web}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      # Any OpenAI-compatible endpoint. Unset = DeepSeek.
+      # LLM_PROVIDER: deepseek (default) | newapi | custom
+      # LLM_THINKING: on | off | auto (empty = follow the provider preset)
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      LLM_THINKING: ${LLM_THINKING:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
       INDEXNOW_KEY: ${INDEXNOW_KEY:-}
       DAILY_ENABLED: ${DAILY_ENABLED:-false}
       DAILY_GEN_COUNT: ${DAILY_GEN_COUNT:-3}

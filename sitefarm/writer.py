@@ -8,7 +8,7 @@ from html import escape
 from typing import Any
 
 from .config import ProjectConfig, SiteConfig
-from .llm import DeepSeek
+from .llm import LLM
 
 BANNED_TOPICS = """
 Never write about: politics, elections, religion, adult or sexual content, gambling,
@@ -130,7 +130,7 @@ def _article_type_for(keyword: str, intent: str) -> str:
 
 
 # ------------------------------------------------------------------ generate
-def suggest_keywords(llm: DeepSeek, site: SiteConfig, count: int = 25) -> list[tuple[str, str, int]]:
+def suggest_keywords(llm: LLM, site: SiteConfig, count: int = 25) -> list[tuple[str, str, int]]:
     system = SYSTEM_TEMPLATE.format(
         brand="the editorial team",
         niche=site.niche,
@@ -170,7 +170,7 @@ Return JSON: {{"keywords": [{{"keyword": "...", "intent": "informational|commerc
 
 
 def generate_article(
-    llm: DeepSeek,
+    llm: LLM,
     cfg: ProjectConfig,
     site: SiteConfig,
     keyword: str,

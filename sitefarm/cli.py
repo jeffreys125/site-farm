@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from .config import ProjectConfig, SiteConfig, load_config
-from .llm import DeepSeek, LLMError
+from .llm import LLM, LLMError
 from .publisher import WordPressPublisher, publish_pending
 from .seo import build_sitemap, check_sitemap_live, ping_search_engines, submit_indexnow
 from .sources import collect
@@ -71,7 +71,7 @@ def cmd_status(cfg: ProjectConfig, store: Store, args) -> None:
 
 
 def cmd_keywords(cfg: ProjectConfig, store: Store, args) -> None:
-    llm = DeepSeek(cfg.deepseek)
+    llm = LLM(cfg.llm)
     for site in _target_sites(cfg, args):
         keywords = suggest_keywords(llm, site, count=args.count)
         added = store.add_keywords(site.id, keywords)
@@ -98,8 +98,8 @@ def cmd_fetch(cfg: ProjectConfig, store: Store, args) -> None:
 
 
 def cmd_gen(cfg: ProjectConfig, store: Store, args) -> None:
-    llm = DeepSeek(cfg.deepseek)
-    if cfg.deepseek.mock and not args.mock:
+    llm = LLM(cfg.llm)
+    if cfg.llm.mock and not args.mock:
         print("! no API key found (DEEPSEEK_API_KEY / LLM_API_KEY) - running in mock mode",
               file=sys.stderr)
 
@@ -192,7 +192,7 @@ def cmd_submit(cfg: ProjectConfig, store: Store, args) -> None:
 
 
 def cmd_plan(cfg: ProjectConfig, store: Store, args) -> None:
-    llm = DeepSeek(cfg.deepseek)
+    llm = LLM(cfg.llm)
     out_path = cfg.output_dir / "content-plan.csv"
     rows = []
     for site in _target_sites(cfg, args):
@@ -226,6 +226,42 @@ def cmd_check(cfg: ProjectConfig, store: Store, args) -> None:
             continue
         info = WordPressPublisher(site).health()
         print(f"[{site.id}] {json.dumps(info, ensure_ascii=False)}")
+
+
+def cmd_llm_check(cfg: ProjectConfig, store: Store, args) -> None:
+    """Verify the configured AI provider with one real request."""
+    c = cfg.llm
+    llm = LLM(c)
+    if len(c.api_key) > 8:
+        masked = c.api_key[:4] + "..." + c.api_key[-4:]
+    else:
+        masked = "***" if c.api_key else "(未设置)"
+    print(f"provider  : {c.provider}")
+    print(f"base_url  : {c.base_url}")
+    print(f"model     : {c.model}")
+    print(f"api_key   : {masked}")
+    print(f"thinking  : {c.thinking} (关闭={llm.thinking_off()})")
+    print(f"max_tokens: {c.max_tokens}")
+    print(f"mock      : {c.mock}")
+    print("-" * 56)
+    res = llm.probe()
+    if not res.get("ok"):
+        print("结果: 失败")
+        for key in ("http", "error"):
+            if res.get(key):
+                print(f"  {key}: {res[key]}")
+        return
+    print("结果: 成功")
+    print(f"  HTTP {res['http']} | 耗时 {res['elapsed']}s | 上游模型 {res['model']}")
+    usage = res.get("usage") or {}
+    if usage:
+        print("  tokens: prompt={prompt_tokens} completion={completion_tokens} total={total_tokens}".format(**usage))
+    print(f"  返回 reasoning_content: {res.get('reasoning_content')}")
+    print(f"  JSON 可解析: {res.get('json_ok')}")
+    print(f"  content: {res.get('content')}")
+    if res.get("reasoning_content"):
+        print("  注意: 该模型会思考，长文生成可能耗尽 max_tokens 而返回不了正文。")
+        print("        建议设置 LLM_THINKING=off（或改用 LLM_PROVIDER=newapi）。")
 
 
 def cmd_serve(cfg: ProjectConfig, store: Store, args) -> None:
@@ -302,6 +338,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("check", help="verify WordPress credentials and endpoints", parents=[common])
     s.set_defaults(func=cmd_check)
+
+    s = sub.add_parser("llm-check", help="verify the configured AI provider with one real request",
+                      parents=[common])
+    s.set_defaults(func=cmd_llm_check)
 
     s = sub.add_parser("serve", help="serve static previews on localhost", parents=[common])
     s.add_argument("--port", type=int, default=8099)
