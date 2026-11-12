@@ -139,17 +139,67 @@ PY
 log "config rendered -> ${RUNTIME} (${DOMAIN}, ${SITE_SCHEME})"
 
 # ------------------------------------------------------------------ run -----
+# ---------------------------------------------------------------- scheduling
+# Plain `sleep 86400` measures from the moment the previous cycle *finished*,
+# so the run time drifts later on every restart. With DAILY_AT=HH:MM we sleep
+# to an absolute wall-clock time instead, which stays put across restarts.
+sleep_until_next() {
+    local at="${DAILY_AT:-}" now target secs
+    now="$(date +%s)"
+    target="$(date -d "today ${at}" +%s 2>/dev/null || echo 0)"
+    if [ "$target" -eq 0 ] || [ "$target" -le "$now" ]; then
+        target="$(date -d "tomorrow ${at}" +%s 2>/dev/null || echo $((now + 86400)))"
+    fi
+    secs=$((target - now))
+    [ "$secs" -lt 60 ] && secs=$((secs + 86400))
+    log "next cycle at ${at} (in ${secs}s)"
+    sleep "$secs"
+}
+
 if [ "${DAILY_ENABLED:-false}" = "true" ]; then
-    log "daily mode: cycle every ${DAILY_INTERVAL:-86400}s, ${DAILY_GEN_COUNT:-3} article(s) per site"
+    if [ -n "${DAILY_AT:-}" ]; then
+        log "daily mode: every day at ${DAILY_AT}, ${DAILY_GEN_COUNT:-3} article(s) per site, status=${PUBLISH_STATUS:-draft}"
+    else
+        log "daily mode: cycle every ${DAILY_INTERVAL:-86400}s, ${DAILY_GEN_COUNT:-3} article(s) per site"
+    fi
+    first_cycle=true
     while true; do
+        if [ -z "${DAILY_AT:-}" ]; then
+            # Legacy behaviour: first cycle immediately, then a relative sleep.
+            [ "$first_cycle" = "true" ] || sleep "${DAILY_INTERVAL:-86400}"
+        elif [ "$first_cycle" = "true" ] && [ "${RUN_ON_START:-false}" = "true" ]; then
+            log "RUN_ON_START=true -- running the first cycle now"
+        else
+            sleep_until_next
+        fi
+        first_cycle=false
+
         log "--- cycle start ---"
         python run.py fetch      || log "fetch failed"
         python run.py gen --count "${DAILY_GEN_COUNT:-3}" || log "gen failed"
-        python run.py publish --count 60 --wp-status "${PUBLISH_STATUS:-draft}" || log "publish failed"
-        python run.py submit     || log "submit failed"
+
+        publish_args=(--count 60 --wp-status "${PUBLISH_STATUS:-draft}")
+        if [ "${PUBLISH_STATUS:-draft}" = "future" ]; then
+            publish_args+=(
+                --schedule-at "${PUBLISH_SCHEDULE_AT:-06:00}"
+                --spacing-minutes "${PUBLISH_SPACING_MINUTES:-180}"
+                --per-day "${PUBLISH_PER_DAY:-3}"
+                --timezone "${PUBLISH_TZ:-Asia/Shanghai}"
+            )
+        fi
+        python run.py publish "${publish_args[@]}" || log "publish failed"
+
+        # Scheduled posts are not public yet, so do not push their URLs to
+        # IndexNow -- the crawler would just get a 404. The sitemap builder
+        # reads the public REST API and already skips future posts. Passing an
+        # empty --urls keeps the sitemap step and suppresses only IndexNow.
+        if [ "${PUBLISH_STATUS:-draft}" = "future" ]; then
+            python run.py submit --urls || log "submit failed"
+        else
+            python run.py submit      || log "submit failed"
+        fi
         python run.py status     || true
-        log "--- sleeping ---"
-        sleep "${DAILY_INTERVAL:-86400}"
+        log "--- cycle done ---"
     done
 else
     log "idle mode. Trigger work with:"

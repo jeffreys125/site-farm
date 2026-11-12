@@ -314,24 +314,51 @@ docker compose exec web bash
 
 ```ini
 DAILY_ENABLED=true       # ① 开循环，否则 pipeline 只是 idle 空壳
-DAILY_GEN_COUNT=3        # ② 每站每轮 3 篇，8 个内容站 = 24 篇/轮
-PUBLISH_STATUS=publish   # ③ 直接公开发布（写 draft 就只进草稿箱）
-LLM_API_KEY=...          # ④ 没 key 会静默进 mock 模式，发布占位假文，务必填
+DAILY_AT=04:00           # ② 固定每天钟点（留空 = 每 DAILY_INTERVAL 秒一轮）
+RUN_ON_START=false       # ③ 别在容器启动瞬间就跑第一轮
+DAILY_GEN_COUNT=3        # ④ 每站每轮 3 篇，9 个站 = 27 次模型调用
+PUBLISH_STATUS=publish   # ⑤ publish=立刻公开 / draft=草稿 / future=排期定时发布
+LLM_API_KEY=...          # ⑥ 没 key 会静默进 mock 模式，发布占位假文，务必填
 ```
 
 然后 `docker compose up -d pipeline`（环境变量要重建容器才生效）。
 
-**它一启动就跑第一轮，不是等到明天。** 循环是「跑一轮 → sleep 24 小时 → 再跑」，所以时间点等于你执行 `up -d` 的那一刻。想固定在凌晨 4 点跑，别用 `DAILY_ENABLED`，把它设回 `false`，改用宿主机的计划任务：
+**旧版循环是「跑一轮 → sleep 24 小时 → 再跑」**，时间点等于你执行 `up -d` 的那一刻，容器每重建一次就漂移一次。现在用 `DAILY_AT` 钉死钟点：
+
+```ini
+DAILY_ENABLED=true
+DAILY_AT=04:00        # 每天 04:00 跑（服务器本地时间，绝对钟点）
+RUN_ON_START=false    # 不要在容器启动那一刻立刻跑第一轮
+```
+
+`DAILY_AT` 留空则退回旧的 `DAILY_INTERVAL` 相对 sleep。日志里会打印 `next cycle at 04:00 (in NNNNNs)`，用 `docker compose logs pipeline` 能看到。
+
+**想让文章按时间慢慢公开，而不是一轮全推出去**：把 `PUBLISH_STATUS` 设成 `future`，文章会以 WordPress「计划发布」状态创建并带上未来时间，由 WordPress 自己到点公开：
+
+```ini
+PUBLISH_STATUS=future
+PUBLISH_SCHEDULE_AT=06:00     # 每天第一个公开点
+PUBLISH_SPACING_MINUTES=180   # 06:00 / 09:00 / 12:00
+PUBLISH_PER_DAY=3             # 超出顺延到次日
+PUBLISH_TZ=Asia/Shanghai
+```
+
+生成时间（`DAILY_AT`）和公开时间（`PUBLISH_SCHEDULE_AT`）是两个独立配置。`future` 模式下循环会自动跳过 IndexNow 提交（避免把还没公开的 URL 推给搜索引擎），sitemap 仍照常生成。
+
+> **WP-Cron 是懒触发的**：没人访问站点就不会检查计划任务，新站可能延迟几小时才公开。想准点就在宿主机挂个系统 cron，每 10 分钟对每个子站跑一次 `docker compose exec -T web wp cron event run --due-now --allow-root --path=/var/www/sites/<id>`。
+
+也可以完全不用容器内循环：设 `DAILY_ENABLED=false`，用宿主机 crontab 定时执行（Windows 换成任务计划程序 + `.bat`）：
 
 ```bash
 # Linux crontab -e
 0 4 * * * cd /opt/site-farm && docker compose exec -T pipeline python run.py fetch && \
           docker compose exec -T pipeline python run.py gen --count 3 && \
-          docker compose exec -T pipeline python run.py publish --count 60 --wp-status publish && \
-          docker compose exec -T pipeline python run.py submit
+          docker compose exec -T pipeline python run.py publish --wp-status future \
+            --schedule-at 06:00 --spacing-minutes 180 --per-day 3 && \
+          docker compose exec -T pipeline python run.py submit --urls
 ```
 
-Windows 用任务计划程序跑一个 `.bat`，内容同上但换成 `cd /d D:\site-farm`。
+注意外部触发只适用于宿主机自己的计划任务：**WorkBuddy 的自动化定时任务运行在独立沙箱，连不进服务器的 Docker 内网**，需要额外部署公网触发接口才能用它来驱动这套流水线。
 
 每轮 `publish --count 60` 是单站上限，正常不会顶到。
 
@@ -516,10 +543,11 @@ docker compose exec -T pipeline python run.py status
 | 你看到的 | 含义 |
 |---|---|
 | 日志里只有 `idle mode` | 循环没启动，见下面的「一行一个变量」 |
-| `daily mode: cycle every 86400s, 3 article(s) per site` 但之后没有 `cycle start` | 还在等 web 装站，正常，最多 3 分钟 |
+| `daily mode: every day at 04:00` 加 `next cycle at 04:00 (in NNNNNs)`，之后长时间没有 `cycle start` | **正常**，设了 `DAILY_AT` 就要等到那个钟点；想立刻跑一轮设 `RUN_ON_START=true` |
+| `daily mode: cycle every 86400s` 但之后没有 `cycle start` | 还在等 web 装站，正常，最多 3 分钟 |
 | `cycle start` 之后只有 `[diy] fetched ...` | 正在抓素材，九个站约 2–3 分钟 |
 | `[diy] + 标题 (1420w) -> slug` | 正在写文章，一篇 40–90 秒 |
-| `[diy] attempted=3 published=3` | 已发到 WordPress |
+| `[diy] attempted=3 published=3 until=2026-11-14 09:00 CST` | 已排期到 WordPress（`future` 模式会多一个 `until`） |
 
 **最常见的原因是 `.env` 写成了同一行**。`.env` 是**一行一个变量**，不接受空格分隔：
 

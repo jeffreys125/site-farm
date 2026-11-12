@@ -101,7 +101,20 @@ services:
       DAILY_ENABLED: ${DAILY_ENABLED:-false}
       DAILY_GEN_COUNT: ${DAILY_GEN_COUNT:-3}
       DAILY_INTERVAL: ${DAILY_INTERVAL:-86400}
+      # Empty = relative sleep (legacy). HH:MM = run at that wall-clock time
+      # every day, so a container restart does not shift the schedule.
+      DAILY_AT: ${DAILY_AT:-}
+      # false = wait for the first DAILY_AT instead of running a cycle the
+      # moment the container starts (the old behaviour published 27 posts
+      # immediately on every rebuild).
+      RUN_ON_START: ${RUN_ON_START:-false}
       PUBLISH_STATUS: ${PUBLISH_STATUS:-draft}
+      # Only used when PUBLISH_STATUS=future: posts are spread across these
+      # slots and WordPress publishes them on its own at the planned time.
+      PUBLISH_SCHEDULE_AT: ${PUBLISH_SCHEDULE_AT:-06:00}
+      PUBLISH_SPACING_MINUTES: ${PUBLISH_SPACING_MINUTES:-180}
+      PUBLISH_PER_DAY: ${PUBLISH_PER_DAY:-3}
+      PUBLISH_TZ: ${PUBLISH_TZ:-Asia/Shanghai}
     volumes:
       - ./config/sites.yaml:/app/config/sites.yaml:ro
       - wp_sites:/wpdata:ro

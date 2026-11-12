@@ -163,10 +163,15 @@ def cmd_publish(cfg: ProjectConfig, store: Store, args) -> None:
             limit=args.count,
             dry_run=args.dry_run,
             status=args.wp_status,
+            schedule_at=args.schedule_at,
+            spacing_minutes=args.spacing_minutes,
+            per_day=args.per_day,
+            tz_name=args.timezone,
         )
+        extra = f" until={res['scheduled_until']}" if res.get("scheduled_until") else ""
         print(
             f"[{site.id}] attempted={res['attempted']} published={res['published']} "
-            f"exported={res['exported']} failed={res['failed']}"
+            f"exported={res['exported']} failed={res['failed']}{extra}"
         )
         for err in res["errors"][:5]:
             print(f"    ! {err}")
@@ -329,7 +334,16 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("publish", help="push generated articles to WordPress", parents=[common])
     s.add_argument("--count", type=int, default=20)
     s.add_argument("--dry-run", action="store_true", help="write static preview files instead")
-    s.add_argument("--wp-status", choices=["draft", "publish"], default=None)
+    s.add_argument("--wp-status", choices=["draft", "publish", "future"], default=None,
+                   help="future = schedule posts; WordPress publishes them at the planned time")
+    s.add_argument("--schedule-at", default="06:00", metavar="HH:MM",
+                   help="first slot of each day (default 06:00, site timezone)")
+    s.add_argument("--spacing-minutes", type=int, default=180, metavar="N",
+                   help="minutes between two posts on the same day (default 180)")
+    s.add_argument("--per-day", type=int, default=3, metavar="N",
+                   help="max posts scheduled per day; overflow rolls to the next day")
+    s.add_argument("--timezone", default="Asia/Shanghai", metavar="IANA",
+                   help="timezone for the schedule (default Asia/Shanghai)")
     s.set_defaults(func=cmd_publish)
 
     s = sub.add_parser("submit", help="build sitemap and push URLs to IndexNow", parents=[common])
