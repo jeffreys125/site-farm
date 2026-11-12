@@ -60,7 +60,7 @@ def _slug(text: str) -> str:
 class WPConfig:
     user: str = ""
     app_password: str = ""
-    status: str = "draft"          # draft | publish | future
+    status: str = "draft"          # draft | publish
     default_category: str = "Guides"
 
 

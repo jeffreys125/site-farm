@@ -108,51 +108,7 @@ docker compose exec -T pipeline python run.py gen --site diy --count 1
 
 `llm-check` 会打印当前生效的 provider / base_url / model / 思考开关（密钥打码），并发一个最小真实请求，报告 HTTP 状态、耗时、token 用量、是否返回了 `reasoning_content`、JSON 能否解析。看到 `[diy] + 标题 (xxxw)` 才算生成成功。
 
----
-
-## 定时发布
-
-文章最终由 `site-farm-pipeline-1` 容器里的 `python run.py publish` 通过 **WordPress REST API**（`POST /wp-json/wp/v2/posts`）推给同机的 `web` 容器，`web` 再写进 MySQL。容器之间走内网 `http://web`，不经过公网。
-
-默认行为是「生成完立刻 `publish` 公开」。想改成按时间慢慢放出去，用 `PUBLISH_STATUS=future`：文章以 WordPress 的 **future（计划发布）** 状态创建，带 `date` / `date_gmt`，由 WordPress 到点自动转公开——**届时 pipeline 容器不需要还醒着**。
-
-```ini
-# .env
-DAILY_ENABLED=true
-DAILY_AT=04:00              # 每天 04:00 生成（绝对钟点，重启不漂移）
-RUN_ON_START=false          # 别在容器启动那一刻就跑第一轮
-DAILY_GEN_COUNT=3
-
-PUBLISH_STATUS=future       # publish=立刻公开 | draft=进草稿箱 | future=排期
-PUBLISH_SCHEDULE_AT=06:00   # 每天第一个公开时间点
-PUBLISH_SPACING_MINUTES=180 # 06:00 / 09:00 / 12:00
-PUBLISH_PER_DAY=3           # 超过 3 篇顺延到次日
-PUBLISH_TZ=Asia/Shanghai
-```
-
-一轮生成 3 篇/站，就排到当天 06:00、09:00、12:00；下一轮再排到次日同一组时间。生成时间（`DAILY_AT`）和公开时间（`PUBLISH_SCHEDULE_AT`）是两回事，别设成同一个。
-
-**一个必须知道的坑**：WordPress 的 WP-Cron 是「有人访问站点时才顺带检查」的懒触发，站群刚起步没流量时，计划文章可能拖几小时才公开。要么接受这个延迟，要么在宿主机挂一个系统 cron 主动触发：
-
-```bash
-# crontab -e，每 10 分钟，九个子站各跑一次
-*/10 * * * * cd /opt/site-farm && for s in hub diy woodworking pet camp kitchen auto garden homeoffice; do \
-  docker compose exec -T web wp cron event run --due-now --allow-root --path=/var/www/sites/$s >/dev/null 2>&1; done
-```
-
-`future` 模式下 `submit` 只写 sitemap、不往 IndexNow 推 URL（文章还没公开，推了只会让爬虫吃 404）；公开后的下一轮循环会补交。
-
-**不想让容器常驻跑循环？** 设 `DAILY_ENABLED=false`，改由外部定时任务到点执行：
-
-```bash
-docker compose exec -T pipeline python run.py gen --count 3
-docker compose exec -T pipeline python run.py publish --wp-status future \
-  --schedule-at 06:00 --spacing-minutes 180 --per-day 3 --timezone Asia/Shanghai
-```
-
-挂在宿主机 crontab 最省事。注意：**WorkBuddy 的自动化定时任务跑在独立沙箱，进不了你服务器的 Docker 内网**，没法直接 `docker compose exec`。要让它触发，得在服务器上额外放一个公网可达、带 token 的触发接口（和「家事安康会」那个任务的 `receiver.php` 是同一套模式），或者让它直接走公网的 WordPress REST API 发文章。
-
-**别一上来跑 27 篇**：前 1–2 个月建议保持 `draft` 人工过一遍，AdSense 审核期间尤其如此。
+**别一上来跑 27 篇**：`DAILY_ENABLED=true` 会在容器启动那一刻立刻跑第一轮，如果 `PUBLISH_STATUS=publish`，AI 写的每一篇都会立刻公开、没有人看过。建议先设 `DAILY_ENABLED=false` 试水，前 1–2 个月保持 `draft` 人工过一遍，AdSense 审核期间尤其如此。
 
 ---
 
@@ -230,8 +186,7 @@ Linux / 宝塔同理，把 `.bat` 换成 `.sh`。日常跑批：`scripts\daily.b
 | `plan --count 25` | 导出内容日历到 `output/content-plan.csv` |
 | `fetch` | 拉取配置里的 RSS 到素材池（遵守 robots.txt） |
 | `gen --count 3` | 按队列生成文章，**每个站** 3 篇 |
-| `publish --wp-status draft` | 推送到 WordPress（`draft` / `publish` / `future`） |
-| `publish --wp-status future --schedule-at 06:00 --spacing-minutes 180 --per-day 3` | 按时间排期发布 |
+| `publish --wp-status draft` | 推送到 WordPress |
 | `submit` | 生成 sitemap + IndexNow 提交 |
 | `check` | 验证 WordPress 应用密码是否可用 |
 | `serve` | 本地预览生成的 HTML |
